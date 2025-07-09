@@ -1,0 +1,43 @@
+{
+  "configurations": [
+    {
+      "name": "IAR ARM",
+      "includePath": [
+        "${workspaceFolder}/ra/**",
+        "${workspaceFolder}/ra_cfg/**",
+        "${workspaceFolder}/ra_gen/**",
+        "${workspaceFolder}/src/**",
+        "C:/iar/ewarm-9.60.3/arm/inc/c/**",
+        "C:/iar/ewarm-9.60.3/arm/inc/cpp/**",
+        "C:/iar/ewarm-9.60.3/arm/CMSIS/Core/Include/**",
+        "C:/iar/ewarm-9.60.3/arm/inc/Renesas/**"
+      ],
+      "defines": [
+        "__ICCARM__",
+        "__ARM_ARCH_PROFILE=M",
+        "__VFP_FP__",
+        "RENESAS_CORTEX_M85",
+        "_DEBUG",
+        "__fp16=float",
+        "__constrange(...)=",
+        "__c99_generic(...)=",
+        "__spec_string=",
+        "__func__=\"\"",
+        "__alignof__(a)=1",
+        "__ALIGNOF__=__alignof__",
+        "__section_begin(x)=((void*)0)",
+        "__section_end(x)=((void*)0)",
+        "__section_size(x)=((size_t)0)",
+        "TX_INCLUDE_USER_DEFINE_FILE",
+        "NX_INCLUDE_USER_DEFINE_FILE",
+        "UX_INCLUDE_USER_DEFINE_FILE"
+      ],
+      "compilerPath": "C:/iar/ewarm-9.60.3/arm/bin/iccarm.exe",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm",
+      "configurationProvider": "iarsystems.iar-build"
+    }
+  ],
+  "version": 4
+}

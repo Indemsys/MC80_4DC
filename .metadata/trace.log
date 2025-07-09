@@ -1,0 +1,6 @@
+# !SESSION 2025-03-19 10:47:21.023
+# version: 1.1
+# verbose: true
+# The following option strings are specified for this debug session:
+# 	null
+| main | 2025-03-19 10:47:21.023 | com.iar.ide.common | /debug | com.iar.ide.common.PlatformLoggerDelegate | traceFile | 74 | com.iar.ide.debugger.timeline.service.data.TimelineDataSourceProviderRegistry INFO Timeline data source providers found: [com.iar.ide.debugger.timeline.service.TimelineServiceDataSourceProvider@22561412] |

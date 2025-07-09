@@ -1,0 +1,23 @@
+{
+  "folders" : [
+    {
+      "path": "."
+    }
+  ],
+              "settings":
+  {
+    "files.associations" : {
+      "*.code-workspace": "c",
+      "*.с": "c",
+      "app.h": "c",
+      "iosfwd": "cpp",
+      "mc80.h": "c",
+      "can_task.h": "c",
+      "hal_data.h": "c",
+      "monitor_can_motor_test.h": "c",
+      "freemaster_tsa.h": "c",
+      "main_task.h": "c",
+      "system_error_flags.h": "c"
+    }
+  }
+}

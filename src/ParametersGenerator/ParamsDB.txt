@@ -1,0 +1,114 @@
+{
+  "DevParams": {
+    "columns": ["Category"          , "SubNumber", "Selector_name"  , "ParameterDescription"                                                , "ParameterAlias", "Variable_name"            , "Variable_type", "defval", "minval", "maxval", "attr", "pdefval"  , "format", "func", "varlen"],
+    "rows": [
+      [        "MC80_Display"      , 1          , "string"         , "Display_orientation"                                                 , "SPLSHSC"       , "display_orientation"      , "tint8u"       , 0       , 0       , 3       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_FreeMaster"   , 1          , "binary"         , "Enable FreeMaster protocol"                                          , "NFRMSTR"       , "en_freemaster"            , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_FreeMaster"   , 2          , "binary"         , "Enable logging to FreeMaster pipe"                                   , "NLGTFRM"       , "en_log_to_freemaster"     , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_General"      , 2          , "string"         , "Product name"                                                        , "PRDCTNM"       , "product_name"             , "tstring"      , 0       , 0       , 0       , "0"   , "MC80"     , "%s"    , "0"   , 64       ],
+      [        "MC80_General"      , 3          , "string"         , "Software version"                                                    , "SFTWRVR"       , "software_version"         , "tstring"      , 0       , 0       , 0       , "0"   , "MC80"     , "%s"    , "0"   , 64       ],
+      [        "MC80_General"      , 4          , "string"         , "Hardware version"                                                    , "HRDWRVR"       , "hardware_version"         , "tstring"      , 0       , 0       , 0       , "0"   , "MC80 v1.0", "%s"    , "0"   , 64       ],
+      [        "MC80_General"      , 5          , "binary"         , "Enable log"                                                          , "NNNNNNN"       , "enable_log"               , "tint8u"       , 1       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_General"      , 7          , "binary"         , "Enable logging to file"                                              , "NLGTFLN"       , "en_log_to_file"           , "tint8u"       , 1       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_General"      , 8          , "binary"         , "Enable settings compression"                                         , "NCMPRSS"       , "en_compress_settins"      , "tint8u"       , 1       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_General"      , 9          , "binary"         , "Enable formatting in settings file"                                  , "NFRMTNG"       , "en_formated_settings"     , "tint8u"       , 1       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_General"      , 12         , "string"         , "PWM frequency for motor control (Hz)"                                , "PWMFRQHZ"      , "pwm_frequency"            , "tint32u"      , 8000    , 2000    , 16000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_USB_Interface", 1          , "usb_mode"       , "USB mode"                                                            , "SBMDSBM"       , "usb_mode"                 , "tint32u"      , 1       , 0       , 7       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 1          , "string"         , "Short to VS detector level for lowside FETs (1- highest..15-lowest)" , "SHRTVSD"       , "short_vs_det_level"       , "tint32u"      , 12      , 1       , 15      , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 2          , "string"         , "Short to GND detector level for highside FETs (2- highest..15lowest)", "SHRTGND"       , "short_gnd_det_level"      , "tint32u"      , 12      , 2       , 15      , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 3          , "string"         , "Spike filtering bandwidth for short detection (0-100ns..3-3us)"      , "SHRTDTS"       , "short_det_spike_filter"   , "tint32u"      , 0       , 0       , 3       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 4          , "string"         , "Short detection delay parameter (0..1)"                              , "SHRTDTD"       , "short_det_delay_param"    , "tint32u"      , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 5          , "binary"         , "Enable short to GND protection"                                      , "NBLSHRT"       , "enable_short_to_gnd_prot" , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 6          , "binary"         , "Enable short to VS protection"                                       , "NBLSHRA"       , "enable_short_to_vs_prot"  , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 7          , "string"         , "Gate driver current parameter (0-weak..4-strong)"                    , "GTDRVRC"       , "gate_driver_current_param", "tint32u"      , 2       , 0       , 3       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 8          , "string"         , "Shunt resistor (Ohm)"                                                , "SHNTRSS"       , "shunt_resistor"           , "tfloat"       , 0.002   , 0       , 1       , "0"   , null       , "%0.6f" , "0"   , 0        ],
+      [        "MC80_DriverIC"     , 9          , "string"         , "Input shunt resistor (Ohm)"                                          , "NPTSHNT"       , "input_shunt_resistor"     , "tfloat"       , 0.001   , 0       , 1       , "0"   , null       , "%0.6f" , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 1          , "string"         , "Maximum PWM level (percent)"                                         , "MOTR1PWM"      , "motor_1_max_pwm_percent"  , "tint8u"       , 100     , 1       , 100     , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 2          , "binary"         , "Direction invert flag"                                               , "MOTR1INV"      , "motor_1_direction_invert" , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 3          , "string"         , "Acceleration time (ms)"                                              , "MOTR1ACC"      , "motor_1_accel_time_ms"    , "tint32u"      , 1000    , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 4          , "string"         , "Deceleration time (ms)"                                              , "MOTR1DEC"      , "motor_1_decel_time_ms"    , "tint32u"      , 500     , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 5          , "accel_decel_alg", "Acceleration/Deceleration algorithm"                                 , "MOTR1ALG"      , "motor_1_algorithm"        , "tint8u"       , 2       , 0       , 2       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_1"      , 6          , "string"         , "Maximum current for emergency stop (A)"                              , "MOTR1CUR"      , "motor_1_max_current_a"    , "tfloat"       , 25.0    , 0.1     , 100.0   , "0"   , null       , "%0.1f" , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 1          , "string"         , "Maximum PWM level (percent)"                                         , "MOTR2PWM"      , "motor_2_max_pwm_percent"  , "tint8u"       , 100     , 1       , 100     , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 2          , "binary"         , "Direction invert flag"                                               , "MOTR2INV"      , "motor_2_direction_invert" , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 3          , "string"         , "Acceleration time (ms)"                                              , "MOTR2ACC"      , "motor_2_accel_time_ms"    , "tint32u"      , 1000    , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 4          , "string"         , "Deceleration time (ms)"                                              , "MOTR2DEC"      , "motor_2_decel_time_ms"    , "tint32u"      , 100     , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 5          , "accel_decel_alg", "Acceleration/Deceleration algorithm"                                 , "MOTR2ALG"      , "motor_2_algorithm"        , "tint8u"       , 2       , 0       , 2       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_2"      , 6          , "string"         , "Maximum current for emergency stop (A)"                              , "MOTR2CUR"      , "motor_2_max_current_a"    , "tfloat"       , 5.0     , 0.1     , 100.0   , "0"   , null       , "%0.1f" , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 1          , "string"         , "Maximum PWM level (percent)"                                         , "MOTR3PWM"      , "motor_3_max_pwm_percent"  , "tint8u"       , 100     , 1       , 100     , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 2          , "binary"         , "Direction invert flag"                                               , "MOTR3INV"      , "motor_3_direction_invert" , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 3          , "string"         , "Acceleration time (ms)"                                              , "MOTR3ACC"      , "motor_3_accel_time_ms"    , "tint32u"      , 1000    , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 4          , "string"         , "Deceleration time (ms)"                                              , "MOTR3DEC"      , "motor_3_decel_time_ms"    , "tint32u"      , 100     , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 5          , "accel_decel_alg", "Acceleration/Deceleration algorithm"                                 , "MOTR3ALG"      , "motor_3_algorithm"        , "tint8u"       , 2       , 0       , 2       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_3"      , 6          , "string"         , "Maximum current for emergency stop (A)"                              , "MOTR3CUR"      , "motor_3_max_current_a"    , "tfloat"       , 4.0     , 0.1     , 100.0   , "0"   , null       , "%0.1f" , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 1          , "string"         , "Maximum PWM level (percent)"                                         , "MOTR4PWM"      , "motor_4_max_pwm_percent"  , "tint8u"       , 100     , 1       , 100     , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 2          , "binary"         , "Direction invert flag"                                               , "MOTR4INV"      , "motor_4_direction_invert" , "tint8u"       , 0       , 0       , 1       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 3          , "string"         , "Acceleration time (ms)"                                              , "MOTR4ACC"      , "motor_4_accel_time_ms"    , "tint32u"      , 1000    , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 4          , "string"         , "Deceleration time (ms)"                                              , "MOTR4DEC"      , "motor_4_decel_time_ms"    , "tint32u"      , 100     , 0       , 10000   , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 5          , "accel_decel_alg", "Acceleration/Deceleration algorithm"                                 , "MOTR4ALG"      , "motor_4_algorithm"        , "tint8u"       , 2       , 0       , 2       , "0"   , null       , "%d"    , "0"   , 0        ],
+      [        "MC80_Motor_4"      , 6          , "string"         , "Maximum current for emergency stop (A)"                              , "MOTR4CUR"      , "motor_4_max_current_a"    , "tfloat"       , 4.0     , 0.1     , 50.0    , "0"   , null       , "%0.1f" , "0"   , 0        ]
+    ]
+  },  "DevParamTree": {
+    "columns": ["Category"          , "Parent"            , "Description"                      , "Comment"           , "Visible", "Nr"],
+    "rows": [
+      [        "MC80_0"            , null                , "Root"                             , "Корень"            , true     , null ],
+      [        "MC80_main"         , "MC80_0"            , "Parameters and settings"          , "Основная категория", true     , 1    ],
+      [        "MC80_General"      , "MC80_main"         , "Device general settings"          , null                , true     , 2    ],
+      [        "MC80_DriverIC"     , "MC80_main"         , "Driver IC settings"               , null                , true     , 3    ],
+      [        "MC80_Motor_Control", "MC80_main"         , "Motor control settings"           , null                , true     , 4    ],
+      [        "MC80_Display"      , "MC80_main"         , "Display settings"                 , null                , true     , 5    ],
+      [        "MC80_FreeMaster"   , "MC80_main"         , "FreeMaster communication settings", null                , true     , 6    ],
+      [        "MC80_USB_Interface", "MC80_main"         , "USB Interface settings"           , null                , true     , 8    ],
+      [        "MC80_Motor_1"      , "MC80_Motor_Control", "Traction motor settings"          , null                , true     , 1    ],
+      [        "MC80_Motor_2"      , "MC80_Motor_Control", "Motor 2 settings"                 , null                , true     , 2    ],
+      [        "MC80_Motor_3"      , "MC80_Motor_Control", "Motor 3 settings"                 , null                , true     , 3    ],
+      [        "MC80_Motor_4"      , "MC80_Motor_Control", "Motor 4 settings"                 , null                , true     , 4    ]
+    ]
+  },
+  "DevProfiles": {
+    "columns": ["ProfileName", "Description"                , "StructureName"],
+    "rows": [
+      [        "MC80"       , "Параметры контроллера  MC80", "wvar"          ]
+    ]
+  },
+  "DevVarTypes": {
+    "columns": ["Variable_type", "VarCType", "VarFMType"       ],
+    "rows": [
+      [        "tint8u"       , "uint8_t" , "FMSTR_TSA_UINT8"  ],
+      [        "tint16u"      , "uint16_t", "FMSTR_TSA_UINT16" ],
+      [        "tint32u"      , "uint32_t", "FMSTR_TSA_UINT32" ],
+      [        "tfloat"       , "float"   , "FMSTR_TSA_FLOAT"  ],
+      [        "tarrofdouble" , "float"   , "FMSTR_TSA_FLOAT"  ],
+      [        "tstring"      , "uint8_t" , "FMSTR_TSA_UINT8"  ],
+      [        "tarrofbyte"   , "uint8_t" , "FMSTR_TSA_UINT8"  ],
+      [        "tint32s"      , "int32_t" , "FMSTR_TSA_SINT32" ]
+    ]
+  },  "Selectors": {
+    "columns": ["Selector_name"    , "Selector_description"                         ],
+    "rows": [
+      [        "string"           , "Простая строка без выбора"                     ],
+      [        "binary"           , "Выбор между Yes и No"                          ],
+      [        "usb_mode"         , "USB mode"                                      ],
+      [        "usb_dev_interface", "Выбор интерфейса для работы USB device"        ],
+      [        "accel_decel_alg"  , "Acceleration/deceleration algorithm selection" ]
+    ]
+  },"SelectorsLists": {
+    "columns": ["Selector_name"    , "ValueStr", "Caption"                 , "ImageIndx"],
+    "rows": [
+      [        "accel_decel_alg"  , 0         , "Instant"                 , -1          ],
+      [        "accel_decel_alg"  , 1         , "Linear"                  , -1          ],
+      [        "accel_decel_alg"  , 2         , "S-curve"                 , -1          ],
+      [        "binary"           , 0         , "No"                      , 0           ],
+      [        "binary"           , 1         , "Yes"                     , 1           ],
+      [        "usb_dev_interface", 0         , "High speed interface"    , -1          ],
+      [        "usb_dev_interface", 1         , "Full speed interface"    , -1          ],
+      [        "usb_mode"         , 0         , "None"                    , -1          ],
+      [        "usb_mode"         , 1         , "VCOM port"               , -1          ],
+      [        "usb_mode"         , 2         , "Mass storage "           , -1          ],
+      [        "usb_mode"         , 3         , "VCOM and Mass storage"   , -1          ],
+      [        "usb_mode"         , 4         , "VCOM and FreeMaster port", -1          ],
+      [        "usb_mode"         , 5         , "RNDIS"                   , -1          ],
+      [        "usb_mode"         , 6         , "Host ECM"                , -1          ]
+    ]
+  }
+}

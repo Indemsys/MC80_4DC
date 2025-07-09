@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+    {
+      "label": "Flash MC80 4DC",
+      "type": "shell",
+      "command": "${workspaceFolder}/Flash_MC80_4DC.cmd",
+      "group": "build",
+      "isBackground": false,
+      "problemMatcher": []
+    }
+  ]
+}

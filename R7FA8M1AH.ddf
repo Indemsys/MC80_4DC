@@ -1,0 +1,53 @@
+
+;; Architecture extensions
+#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-MPU.ddf"
+#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-CACHE.ddf"
+#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-TPIU.ddf"
+#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\CoreSight-CTI.ddf"
+
+;; Memory information ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Used to define address zones within the ARM address space (Memory).
+;;
+;;   Name      may be almost anything
+;;   AdrSpace  must be Memory
+;;   StartAdr  start of memory block
+;;   EndAdr    end of memory block
+;;   AccType   type of access, read-only (R), read-write (RW) or SFR (W)
+
+[Memory]
+;;         Name             AdrSpace    StartAdr    EndAdr      AccType   Width
+Memory =  ITCM             Memory      0x00000000  0x0000FFFF  RW
+Memory =  FactoryFlash     Memory      0x03008000  0x030081FF  R
+Memory =  OptROM0          Memory      0x0300A100  0x0300A2FF  R
+Memory =  ITCM_NS          Memory      0x10000000  0x1000FFFF  RW
+Memory =  FactoryFlash_NS  Memory      0x13008000  0x130081FF  R
+Memory =  OptROM0_NS       Memory      0x1300A100  0x1300A2FF  R
+Memory =  DTCM             Memory      0x20000000  0x2000FFFF  RW
+Memory =  SRAM             Memory      0x22000000  0x220DFFFF  RW
+Memory =  StbySRAM         Memory      0x26000000  0x260003FF  RW
+Memory =  DataFlash        Memory      0x27000000  0x27002FFF  W
+Memory =  OptROM1          Memory      0x27030000  0x2703087F  R
+Memory =  DTCM_NS          Memory      0x30000000  0x3000FFFF  RW
+Memory =  SRAM_NS          Memory      0x32000000  0x320DFFFF  RW
+Memory =  StbySRAM_NS      Memory      0x36000000  0x360003FF  RW
+Memory =  DataFlash_NS     Memory      0x37000000  0x37002FFF  W
+Memory =  OptROM1_NS       Memory      0x37030000  0x370303FF  R
+Memory =  Periph0          Memory      0x40000000  0x4011FFFF  W
+Memory =  Periph1          Memory      0x40200000  0x404FFFFF  W
+Memory =  Periph0_NS       Memory      0x50000000  0x5011FFFF  W
+Memory =  Periph1_NS       Memory      0x50200000  0x504FFFFF  W
+Memory =  ExtMem_CS        Memory      0x60000000  0x67FFFFFF  W
+Memory =  ExtMem_SDRAM     Memory      0x68000000  0x6FFFFFFF  RW
+Memory =  ExtMem_xSPI      Memory      0x80000000  0x9FFFFFFF  W
+Memory =  SystemSFR        Memory      0xE0000000  0xFFFFFFFF  W
+Memory =  Flash            Memory      0x02000000  0x021F7FFF  R
+Memory =  FlashBank1       Memory      0x02200000  0x022F7FFF  R
+Memory =  Flash_NS         Memory      0x12000000  0x121F7FFF  R
+Memory =  FlashBank1_NS    Memory      0x12200000  0x122F7FFF  R
+
+TrustedRanges = true
+UseSfrFilter = true
+
+[SfrInclude]
+File = R7FA8M1AH_mod.svd

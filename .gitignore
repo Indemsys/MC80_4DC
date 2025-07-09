@@ -1,0 +1,17 @@
+
+**/BrowseInfo/**
+**/List/**
+**/Obj/**
+**/Debug/**
+!**/List/*.map
+
+*.d
+*.o
+*.ko
+*.obj
+
+# Executables
+*.out
+*.ninja_deps
+*.ninja_log
+*.MC80_4DC_Proj_build_cache

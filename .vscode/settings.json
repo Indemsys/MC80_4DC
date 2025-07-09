@@ -1,0 +1,55 @@
+{
+  // Автоматическое сохранение файлов при потере фокуса
+  "files.autoSave": "onFocusChange",
+  // Включить выделение прямоугольных областей (Alt+Shift+мышь)
+  "editor.columnSelection": true,
+  // Размер табуляции в пробелах (2 пробела согласно coding guidelines)
+  "editor.tabSize": 2,
+  // Вставлять пробелы вместо символов табуляции
+  "editor.insertSpaces": true,
+  // Отключить автоматическое определение отступов (использовать tabSize)
+  "editor.detectIndentation": false,
+  // Отключить автоформатирование при вставке кода
+  "editor.formatOnPaste": false,
+  // Отключить автоформатирование во время набора
+  "editor.formatOnType": false,
+  // Отключить автоформатирование при сохранении файла
+  "editor.formatOnSave": false,
+  // Показывать мини-карту справа от редактора
+  "editor.minimap.enabled": true,
+  // Добавлять пустую строку в конец файла при сохранении
+  "files.insertFinalNewline": true,
+  // Удалять лишние пустые строки в конце файла
+  "files.trimFinalNewlines": true,
+  // Удалять пробелы в конце строк при сохранении
+  "files.trimTrailingWhitespace": true,
+  // Отключить автоматическое обнаружение CMake проектов
+  "files.exclude": {
+    "**/BrowseInfo": true,
+    "**/Exe": true,
+    "**/List": true,
+    "**/Obj": true,
+    "**/Debug": true,
+    "**/Release": true,
+  },
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.errorSquiggles": "enabled",
+  "editor.defaultFormatter": "ms-vscode.cpptools",  "[c]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": false
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": false
+  },
+  "[h]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": false
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features"
+  }
+}

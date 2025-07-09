@@ -1,0 +1,10 @@
+Current.DocList.NOTIFICATION.Count=0
+RssMessageHistory.Count=3
+RssMessageHistory.Site000.RssMessages.Count=0
+RssMessageHistory.Site000.RssSite=https\://tool-support.renesas.com/autoupdate/support/smartbrowser/en-us/ToolNews/Common/rss.xml
+RssMessageHistory.Site001.RssMessages.Count=0
+RssMessageHistory.Site001.RssSite=https\://tool-support.renesas.com/autoupdate/support/smartbrowser/en-us/ToolNews/e2s/Common/rss.xml
+RssMessageHistory.Site002.RssMessages.Count=0
+RssMessageHistory.Site002.RssSite=https\://tool-support.renesas.com/autoupdate/support/smartbrowser/en-us/RenesasNews/rss.xml
+RssRegisteredSite.LastChecking=1742374046326
+eclipse.preferences.version=1

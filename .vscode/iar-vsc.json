@@ -1,0 +1,18 @@
+{
+  "workspace": {
+    "path": "${workspaceFolder}\\MC80_4DC_Proj.eww"
+  },
+  "workspaces": {
+    "${workspaceFolder}\\MC80_4DC_Proj.eww": {
+      "configs": {
+        "${workspaceFolder}\\MC80_4DC_Proj.ewp": "Debug"
+      },
+      "selected": {
+        "path": "${workspaceFolder}\\MC80_4DC_Proj.ewp"
+      }
+    }
+  },
+  "workbench": {
+    "path": "C:\\iar\\ewarm-9.70.1"
+  }
+}

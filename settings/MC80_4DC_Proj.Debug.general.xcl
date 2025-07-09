@@ -1,0 +1,17 @@
+C:\iar\ewarm-9.70.1\arm\bin\armproc.dll
+
+ C:\iar\ewarm-9.70.1\arm\bin\armjlink.dll
+
+ D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\Out\Exe\MC80_4DC.out
+
+ --plugin=C:\iar\ewarm-9.70.1\arm\bin\armLibSupportUniversal.dll
+
+ --device_macro=C:\iar\ewarm-9.70.1\arm/config/debugger/Renesas/R7FA8_DBGv1.dmac
+
+ --device_macro=C:\iar\ewarm-9.70.1\arm/config/debugger/Renesas/R7FA8_CLOCKv1.dmac
+
+ --device_macro=C:\iar\ewarm-9.70.1\arm/config/debugger/Renesas/R7FA8M1.dmac
+
+ 
+
+

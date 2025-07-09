@@ -1,0 +1,63 @@
+BasedOnStyle: Google
+BreakBeforeBraces: Allman
+Cpp11BracedListStyle: false
+BraceWrapping:
+  AfterEnum: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterClass: true
+  BeforeElse: true
+  BeforeCatch: true
+  IndentBraces: true
+  AfterFunction: true
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  AfterControlStatement: true
+  AfterNamespace: true
+  AfterExternBlock: true
+  BeforeLambdaBody: true
+  AfterCaseLabel: true
+  BeforeWhile:     true
+
+AlignConsecutiveDeclarations: true
+
+AlignConsecutiveMacros:
+  Enabled:         true
+  AcrossEmptyLines: true
+  AcrossComments:  true
+  AlignCompound:   false
+  AlignFunctionPointers: false
+  PadOperators:    true
+
+AllowShortFunctionsOnASingleLine: false
+ColumnLimit: 0
+
+AlignAfterOpenBracket: Align
+
+BracedInitializerIndentWidth: 1
+BreakAdjacentStringLiterals: true
+TabWidth:        2
+UseTab:          Never
+IndentWidth:     2
+ContinuationIndentWidth: 0
+
+AlignConsecutiveAssignments:
+  Enabled:         true
+  AcrossEmptyLines: true
+  AcrossComments:  true
+  AlignCompound:   false
+  AlignFunctionPointers: false
+  PadOperators:    true
+
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCaseColons: true
+
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2
+
+SortIncludes: false
+IndentPPDirectives: BeforeHash
