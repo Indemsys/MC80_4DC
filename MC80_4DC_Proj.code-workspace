@@ -17,7 +17,8 @@
       "monitor_can_motor_test.h": "c",
       "freemaster_tsa.h": "c",
       "main_task.h": "c",
-      "system_error_flags.h": "c"
+      "system_error_flags.h": "c",
+      "rtt_utils.h": "c"
     }
   }
 }

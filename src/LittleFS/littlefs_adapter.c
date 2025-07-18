@@ -11,9 +11,6 @@
 #include "littlefs_adapter.h"
 #include "RTT_utils.h"
 
-// Flash memory base address in XIP mode for OSPI device 0
-#define OSPI_XIP_BASE_ADDRESS    0x80000000UL
-
 // Global LittleFS context
 T_littlefs_context g_littlefs_context;
 
@@ -364,7 +361,7 @@ int _lfs_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void
   }
 
   // Calculate XIP address by adding flash offset to XIP base
-  uint8_t *xip_address = (uint8_t *)(OSPI_XIP_BASE_ADDRESS + address);
+  uint8_t *xip_address = (uint8_t *)(OSPI_BASE_ADDRESS + address);
 
   // Perform direct memory copy from XIP space
   memcpy(buffer, xip_address, size);
@@ -442,8 +439,8 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
     return -1;
   }
 
-  // Write data using OSPI driver
-  err = p_spi_flash->p_api->write(p_spi_flash->p_ctrl, (uint8_t *)buffer, (uint8_t *)address, size);
+  // Write data using OSPI driver with correct base address
+  err = p_spi_flash->p_api->write(p_spi_flash->p_ctrl, (uint8_t *)buffer, (uint8_t *)(OSPI_BASE_ADDRESS + address), size);
 
   if (err != FSP_SUCCESS)
   {
@@ -512,8 +509,8 @@ int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
     return -1;
   }
 
-  // Erase block using OSPI driver
-  err = p_spi_flash->p_api->erase(p_spi_flash->p_ctrl, (uint8_t *)address, c->block_size);
+  // Erase block using OSPI driver with correct base address
+  err = p_spi_flash->p_api->erase(p_spi_flash->p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + address), c->block_size);
 
   if (err != FSP_SUCCESS)
   {

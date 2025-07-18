@@ -13,8 +13,6 @@
 // External OSPI driver reference
 extern const spi_flash_instance_t g_OSPI;
 
-// Test data patterns
-#define OSPI_XIP_BASE_ADDRESS     0x80000000
 #define OSPI_TEST_PATTERN_SIZE    256
 #define OSPI_TEST_SECTOR_SIZE     4096
 
@@ -254,7 +252,7 @@ void OSPI_test_read(uint8_t keycode)
   }
 
   // Read data directly from XIP memory
-  memcpy(read_buffer, (void *)OSPI_XIP_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
+  memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
 
   // Exit XIP mode
   err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
@@ -297,7 +295,7 @@ void OSPI_test_read(uint8_t keycode)
     MPRINTF("XIP mode entered successfully\n\r");
 
     // Read directly from XIP address space
-    uint8_t *xip_address = (uint8_t *)OSPI_XIP_BASE_ADDRESS;
+    uint8_t *xip_address = (uint8_t *)OSPI_BASE_ADDRESS;
     MPRINTF("XIP Data (first 32 bytes):\n\r");
 
     for (int i = 0; i < 32; i++)
@@ -409,8 +407,8 @@ void OSPI_test_write(uint8_t keycode)
   }
 
   // Perform write
-  MPRINTF("Writing 64 bytes to address 0x00000000...\n\r");
-  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)0x00000000, 64);
+  MPRINTF("Writing 64 bytes to flash offset 0x00000000...\n\r");
+  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 64);
 
   if (err == FSP_SUCCESS)
   {
@@ -439,7 +437,7 @@ void OSPI_test_write(uint8_t keycode)
     }
 
     // Read data directly from XIP memory
-    memcpy(read_buffer, (void *)OSPI_XIP_BASE_ADDRESS, 64);
+    memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, 64);
 
     // Exit XIP mode
     err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
@@ -569,8 +567,8 @@ void OSPI_test_erase(uint8_t keycode)
     } while (status.write_in_progress);
   }
 
-  MPRINTF("Erasing 4KB sector at address 0x00000000...\n\r");
-  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)0x00000000, OSPI_TEST_SECTOR_SIZE);
+  MPRINTF("Erasing 4KB sector at flash offset 0x00000000...\n\r");
+  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
 
   if (err == FSP_SUCCESS)
   {
@@ -613,7 +611,7 @@ void OSPI_test_erase(uint8_t keycode)
       }
 
       // Read data directly from XIP memory
-      memcpy(read_buffer, (void *)OSPI_XIP_BASE_ADDRESS, 256);
+      memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, 256);
 
       // Exit XIP mode
       err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
@@ -757,7 +755,7 @@ void OSPI_test_pattern(uint8_t keycode)
 
   // Step 1: Erase sector
   MPRINTF("Step 1: Erasing sector...\n\r");
-  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)0x00000000, OSPI_TEST_SECTOR_SIZE);
+  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Erase failed: 0x%X\n\r", err);
@@ -782,7 +780,7 @@ void OSPI_test_pattern(uint8_t keycode)
 
   // Step 2: Write pattern
   MPRINTF("Step 2: Writing pattern (%d bytes)...\n\r", OSPI_TEST_PATTERN_SIZE);
-  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)0x00000000, OSPI_TEST_PATTERN_SIZE);
+  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_PATTERN_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Write failed: 0x%X\n\r", err);
@@ -818,7 +816,7 @@ void OSPI_test_pattern(uint8_t keycode)
   }
 
   // Read data directly from XIP memory
-  memcpy(read_buffer, (void *)OSPI_XIP_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
+  memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
 
   // Exit XIP mode
   err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
@@ -937,7 +935,7 @@ void OSPI_test_sector(uint8_t keycode)
 
   // Erase entire sector
   MPRINTF("Erasing 4KB sector...\n\r");
-  fsp_err_t err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)0x00000000, OSPI_TEST_SECTOR_SIZE);
+  fsp_err_t err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Sector erase failed: 0x%X\n\r", err);
@@ -968,7 +966,7 @@ void OSPI_test_sector(uint8_t keycode)
     }
 
     // Write chunk
-    err = g_OSPI.p_api->write(g_OSPI.p_ctrl, chunk_write, (uint8_t *)address, 256);
+    err = g_OSPI.p_api->write(g_OSPI.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Write chunk %d failed: 0x%X\n\r", chunk, err);
@@ -996,7 +994,7 @@ void OSPI_test_sector(uint8_t keycode)
     }
 
     // Read data directly from XIP memory
-    memcpy(chunk_read, (void *)(OSPI_XIP_BASE_ADDRESS + address), 256);
+    memcpy(chunk_read, (void *)(OSPI_BASE_ADDRESS + address), 256);
 
     // Exit XIP mode
     err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
@@ -1098,7 +1096,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
 
     // Test 2: Read via XIP (direct memory access)
     MPRINTF("Test 2: Reading via XIP direct access...\n\r");
-    uint8_t *xip_base = (uint8_t *)OSPI_XIP_BASE_ADDRESS;
+    uint8_t *xip_base = (uint8_t *)OSPI_BASE_ADDRESS;
 
     MPRINTF("XIP data at 0x80000000 (first 32 bytes):\n\r");
     for (int i = 0; i < 32; i++)
@@ -1133,7 +1131,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
       }
 
       // Read data directly from XIP memory
-      memcpy(compare_buffer, (void *)OSPI_XIP_BASE_ADDRESS, 256);
+      memcpy(compare_buffer, (void *)OSPI_BASE_ADDRESS, 256);
 
       // Exit XIP mode
       err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
