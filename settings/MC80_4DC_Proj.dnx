@@ -39,13 +39,61 @@
         <FreqHi>0</FreqHi>
         <MultiCoreRunAll>1</MultiCoreRunAll>
     </Simulator>
-    <DebugChecksum>
-        <Checksum>3236369473</Checksum>
-    </DebugChecksum>
     <PlDriver>
         <FirstRun>0</FirstRun>
         <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
     </PlDriver>
+    <JLinkDriver>
+        <jlinkResetStyle>13</jlinkResetStyle>
+        <jlinkResetStrategy>2</jlinkResetStrategy>
+        <MultiCoreRunAll>0</MultiCoreRunAll>
+        <LeaveTargetRunning>_ 0</LeaveTargetRunning>
+        <CStepIntDis>_ 0</CStepIntDis>
+    </JLinkDriver>
+    <ArmDriver>
+        <EnableCache>1</EnableCache>
+        <EnforceMemoryConfiguration>0</EnforceMemoryConfiguration>
+    </ArmDriver>
+    <DebugChecksum>
+        <Checksum>3052742405</Checksum>
+    </DebugChecksum>
+    <InterruptStripe>
+        <Title0>USBFS_FIFO_0</Title0>
+        <Setup0>3 1 3 0 1 0 0 0 0</Setup0>
+        <Title1>DMAC1_INT</Title1>
+        <Setup1>3 1 3 0 1 0 0 0 0</Setup1>
+        <Title2>USBFS_FIFO_1</Title2>
+        <Setup2>3 1 3 0 1 0 0 0 0</Setup2>
+        <Title3>USBFS_RESUME</Title3>
+        <Setup3>3 1 3 0 1 0 0 0 0</Setup3>
+        <Title4>USBFS_INT</Title4>
+        <Setup4>3 1 3 0 1 0 0 0 0</Setup4>
+        <Title5>SDHIMMC1_ACCS</Title5>
+        <Setup5>3 1 3 0 1 0 0 0 0</Setup5>
+        <Title6>SPI0_TEI</Title6>
+        <Setup6>3 1 3 0 1 0 0 0 0</Setup6>
+        <Title7>SPI0_TXI</Title7>
+        <Setup7>3 1 3 0 1 0 0 0 0</Setup7>
+        <Title8>SPI0_RXI</Title8>
+        <Setup8>3 1 3 0 1 0 0 0 0</Setup8>
+        <Title9>SysTick</Title9>
+        <Setup9>3 1 3 0 1 0 0 0 0</Setup9>
+        <Title10>PendSV</Title10>
+        <Setup10>3 1 3 0 1 0 0 0 0</Setup10>
+        <Title11>HardFault</Title11>
+        <Setup11>3 1 3 0 1 0 0 0 0</Setup11>
+        <Title12>AGT0_INT</Title12>
+        <Setup12>3 1 3 0 1 0 0 0 0</Setup12>
+        <Title13 />
+        <Setup13>3 1 3 0 1 0 0 0 0</Setup13>
+        <Title14>RTC_CARRY</Title14>
+        <Setup14>3 1 3 0 1 0 0 0 0</Setup14>
+        <Title15>IEL68</Title15>
+        <Setup15>3 1 3 0 1 0 0 0 0</Setup15>
+        <Title16>Reset</Title16>
+        <Setup16>3 1 3 0 1 0 0 0 0</Setup16>
+        <Sort>1</Sort>
+    </InterruptStripe>
     <Disassembly>
         <MixedMode>1</MixedMode>
         <InstrCount>0</InstrCount>
@@ -57,17 +105,10 @@
         <StopOnUncaught>_ 0</StopOnUncaught>
         <StopOnThrow>_ 0</StopOnThrow>
     </Exceptions>
-    <JLinkDriver>
-        <jlinkResetStyle>12</jlinkResetStyle>
-        <jlinkResetStrategy>0</jlinkResetStrategy>
-        <MultiCoreRunAll>0</MultiCoreRunAll>
-        <LeaveTargetRunning>_ 0</LeaveTargetRunning>
-        <CStepIntDis>_ 0</CStepIntDis>
-    </JLinkDriver>
     <SWOTraceHWSettings>
         <OverrideDefaultClocks>0</OverrideDefaultClocks>
         <CpuClock>240000000</CpuClock>
-        <ClockAutoDetect>0</ClockAutoDetect>
+        <ClockAutoDetect>1</ClockAutoDetect>
         <ClockWanted>50000000</ClockWanted>
         <JtagSpeed>49230769</JtagSpeed>
         <Prescaler>5</Prescaler>
@@ -82,27 +123,16 @@
         <ITMportsLogFile>0</ITMportsLogFile>
         <ITMlogFile>$PROJ_DIR$\ITM.log</ITMlogFile>
     </SWOTraceHWSettings>
-    <ArmDriver>
-        <EnableCache>0</EnableCache>
-        <EnforceMemoryConfiguration>1</EnforceMemoryConfiguration>
-    </ArmDriver>
-    <InterruptStripe>
-        <Title0 />
-        <Setup0>3 1 3 0 1 0 0 0 0</Setup0>
-        <Title1>IEL68</Title1>
-        <Setup1>3 1 3 0 1 0 0 0 0</Setup1>
-        <Title2>RTC_CARRY</Title2>
-        <Setup2>3 1 3 0 1 0 0 0 0</Setup2>
-        <Title3>Reset</Title3>
-        <Setup3>3 1 3 0 1 0 0 0 0</Setup3>
-        <Title4>HardFault</Title4>
-        <Setup4>3 1 3 0 1 0 0 0 0</Setup4>
-        <Title5>UsageFault</Title5>
-        <Setup5>3 1 3 0 1 0 0 0 0</Setup5>
-        <Title6>DMAC0_INT</Title6>
-        <Setup6>3 1 3 0 1 0 0 0 0</Setup6>
-        <Sort>1</Sort>
-    </InterruptStripe>
+    <EventStripe>
+        <Title0>ITM4</Title0>
+        <Setup0>1 1 3 1 1 0 0 0 0</Setup0>
+        <Title1>ITM3</Title1>
+        <Setup1>1 1 3 1 1 0 0 0 0</Setup1>
+        <Title2>ITM2</Title2>
+        <Setup2>1 1 3 1 1 0 0 0 0</Setup2>
+        <Title3>ITM1</Title3>
+        <Setup3>1 1 3 1 1 0 0 0 0</Setup3>
+    </EventStripe>
     <Trace2>
         <Enabled>0</Enabled>
         <ShowSource>0</ShowSource>

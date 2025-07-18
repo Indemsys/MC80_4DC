@@ -1,16 +1,38 @@
 
 
-OpenDocument="main.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra_gen/main.c", Line=0
+OpenDocument="r_usb_creg_access.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_usb_basic/src/hw/r_usb_creg_access.c", Line=0
+OpenDocument="r_usb_dma.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_usb_basic/src/hw/r_usb_dma.c", Line=1092
+OpenDocument="tx_port.h", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/rm_threadx_port/tx_port.h", Line=653
+OpenDocument="tx_thread_system_suspend.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/microsoft/azure-rtos/threadx/common/src/tx_thread_system_suspend.c", Line=156
+OpenDocument="r_usb_creg_abs.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_usb_basic/src/hw/r_usb_creg_abs.c", Line=409
+OpenDocument="r_usb_cstd_rtos.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_usb_basic/src/driver/r_usb_cstd_rtos.c", Line=1518
+OpenDocument="tx_thread_system_resume.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/microsoft/azure-rtos/threadx/common/src/tx_thread_system_resume.c", Line=303
+OpenDocument="r_ospi_b.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_ospi_b/r_ospi_b.c", Line=1146
+OpenDocument="rm_usbx_port.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/rm_usbx_port/rm_usbx_port.c", Line=559
+OpenDocument="Manual_Encoder.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/src/HMI/Manual_Encoder.c", Line=0
+OpenDocument="r_dmac.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_dmac/r_dmac.c", Line=666
+OpenDocument="startup.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/bsp/cmsis/Device/RENESAS/Source/startup.c", Line=68
+OpenDocument="tx_queue_receive.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/microsoft/azure-rtos/threadx/common/src/tx_queue_receive.c", Line=387
+OpenDocument="Monitor_USB_drv.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/src/USB/Monitor_USB_drv.c", Line=407
+OpenDocument="bsp_irq.h", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/bsp/mcu/all/bsp_irq.h", Line=52
+OpenDocument="r_agt.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/r_agt/r_agt.c", Line=1139
+OpenDocument="tx_thread_schedule.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/rm_threadx_port/tx_thread_schedule.c", Line=327
+OpenDocument="tx_semaphore_get.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/microsoft/azure-rtos/threadx/common/src/tx_semaphore_get.c", Line=196
+OpenDocument="bsp_clocks.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra/fsp/src/bsp/mcu/all/bsp_clocks.c", Line=2537
+OpenDocument="main.c", FilePath="D:/Embedded/Projects/OpenSource/MC80/MC80_4DC/ra_gen/main.c", Line=16
 OpenToolbar="Debug", Floating=0, x=0, y=0
-OpenWindow="Registers 1", DockArea=RIGHT, x=0, y=1, w=539, h=367, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, FilteredItems=[], RefreshRate=1
-OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=539, h=245, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Memory 1", DockArea=BOTTOM, x=1, y=0, w=1128, h=433, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, EditorAddress=0x0
-OpenWindow="Functions", DockArea=LEFT, x=0, y=0, w=300, h=613, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Instruction Trace", DockArea=BOTTOM, x=1, y=0, w=1128, h=433, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=791, h=449, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Call Stack", DockArea=RIGHT, x=0, y=0, w=707, h=86, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Registers 1", DockArea=RIGHT, x=0, y=2, w=707, h=86, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, FilteredItems=[], RefreshRate=1
+OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=1, w=707, h=86, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Memory 1", DockArea=BOTTOM, x=1, y=0, w=1300, h=786, TabPos=2, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, EditorAddress=0x0
+OpenWindow="Functions", DockArea=LEFT, x=0, y=0, w=300, h=260, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Instruction Trace", DockArea=BOTTOM, x=1, y=0, w=1300, h=786, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Timeline", DockArea=BOTTOM, x=1, y=0, w=1300, h=786, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=0, PowerPaneShown=0, CodePaneShown=1, PinCursor="Cursor Movable", TimePerDiv="100 us / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=0, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="1136;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="1139;0", CodeGraphLegendShown=1, CodeGraphLegendPosition="1092;0"
+OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=619, h=802, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
 TableHeader="Functions", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Address";"Size";"#Insts";"Source"], ColWidths=[1836;100;100;100;398]
 TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
-TableHeader="Registers 1", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Description"], ColWidths=[100;105;317]
+TableHeader="Registers 1", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Description"], ColWidths=[100;105;485]
 TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
-TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[26;26;26;31]
+TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[118;86;125;447]
+TableHeader="Call Stack", SortCol="Function", SortOrder="ASCENDING", VisibleCols=["Function";"Stack Frame";"Source";"PC";"Return Address";"Stack Used"], ColWidths=[146;112;188;100;168;100]

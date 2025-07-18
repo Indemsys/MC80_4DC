@@ -12,6 +12,8 @@ C:\iar\ewarm-9.70.1\arm\bin\armproc.dll
 
  --device_macro=C:\iar\ewarm-9.70.1\arm/config/debugger/Renesas/R7FA8M1.dmac
 
+ --macro=D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\execUserReset.mac
+
  
 
 
