@@ -427,160 +427,284 @@ The adapter connects LittleFS to the FSP OSPI driver through these functions:
 ### Overview
 LittleFS is a fail-safe filesystem designed for microcontrollers and flash storage. It uses a **log-structured** approach with **copy-on-write** semantics to ensure data integrity even during power failures.
 
-### Block Structure
-Each 4KB block in flash memory can contain different types of data:
+### Core Concepts
 
-#### 1. **Metadata Blocks** (File System Structure)
-- **Superblock**: Contains filesystem configuration and version info
-- **Directory Blocks**: Store directory entries and file metadata
-- **File Allocation Tables**: Track which blocks belong to which files
+#### 1. **Metadata Pairs (The Heart of LittleFS)**
+LittleFS uses a unique "metadata pair" system - two blocks that work together to store directory information:
 
-#### 2. **Data Blocks** (File Content)
-- **File Data**: Actual file content stored in 4KB chunks
-- **Partial Blocks**: Files smaller than 4KB still occupy full blocks
-
-#### 3. **Special Blocks**
-- **Log Blocks**: Store metadata changes before committing
-- **Cleanup Blocks**: Used during garbage collection and wear leveling
-
-### Write Process (Copy-on-Write)
 ```
-1. New Data Write:
-   [Old Block] → [Keep unchanged]
-   [New Block] ← [Write new data + metadata]
+Metadata Pair Operation:
+┌─────────────┐     ┌─────────────┐
+│ Block A     │     │ Block B     │
+│ (Active)    │     │ (Backup)    │
+├─────────────┤     ├─────────────┤
+│ Revision: 5 │     │ Revision: 4 │
+│ CRC: Valid  │     │ CRC: Valid  │
+│ Entries: 10 │     │ Entries: 10 │
+└─────────────┘     └─────────────┘
 
-2. Metadata Update:
-   [Metadata Block] → [Log the change]
-   [New Metadata Block] ← [Commit updated structure]
-
-3. Old Block Cleanup:
-   [Old Block] → [Mark for erase]
-   [Wear Leveling] ← [Schedule for reuse]
+During update:
+1. Write to inactive block (B)
+2. Update revision number (5 → 6)
+3. Calculate and write CRC
+4. Switch active block (B becomes active)
 ```
 
-### Directory Structure
+#### 2. **CTZ Skip-List (File Block Pointers)**
+LittleFS uses a clever "Count Trailing Zeros" (CTZ) skip-list for efficient file block management:
+
 ```
-Root Directory Block:
-├── File Entry 1: "config.txt" → Points to Block #150
-├── File Entry 2: "data.bin"  → Points to Block #230
-├── Dir Entry 1:  "logs/"     → Points to Block #45
-└── Free Space
+File Block Structure (10KB file example):
+Block 0: [Data 4KB] → Pointer to Block 1
+Block 1: [Data 4KB] → Pointer to Block 2
+         ↓ Skip pointer to Block 3 (every 2^1 blocks)
+Block 2: [Data 2KB + padding]
+         ↓ Skip pointer to Block 0 (every 2^2 blocks)
 
-Subdirectory Block (#45):
-├── File Entry 1: "error.log" → Points to Block #67
-├── File Entry 2: "debug.log" → Points to Block #89
-└── Parent Link: "/"          → Points to Root
-```
-
-### File Storage Layout
-```
-Large File (>4KB) Example:
-File: "firmware.bin" (10KB)
-
-Block #100: [File Header + First 4KB of data]
-Block #101: [Next 4KB of data]
-Block #102: [Last 2KB + padding]
-
-Metadata Chain:
-Root Dir → "firmware.bin" entry → Block #100
-Block #100 → Next: Block #101
-Block #101 → Next: Block #102
-Block #102 → Next: NULL (end)
+This allows O(log n) access to any block in the file!
 ```
 
-### Wear Leveling Strategy
+#### 3. **Block Allocation Strategy**
 ```
-Block Usage Tracking:
-┌─────────┬──────────┬────────────┐
-│ Block # │ Erase    │ Status     │
-│         │ Count    │            │
-├─────────┼──────────┼────────────┤
-│ 0-99    │ 1,245    │ Active     │
-│ 100-199 │ 1,180    │ Preferred  │ ← Lower erase count
-│ 200-299 │ 1,290    │ Avoid      │ ← Higher erase count
-│ 300-399 │ 1,220    │ Active     │
-└─────────┴──────────┴────────────┘
+Block States:
+┌──────────┬─────────────────────────────────┐
+│ State    │ Description                     │
+├──────────┼─────────────────────────────────┤
+│ FREE     │ Erased and ready for use       │
+│ USED     │ Contains valid data            │
+│ MOVING   │ Being relocated (wear leveling)│
+│ BAD      │ Failed erase/write operations  │
+└──────────┴─────────────────────────────────┘
 
-Algorithm: Always choose blocks with lowest erase count
-```
-
-### Power-Fail Safety Mechanism
-```
-Normal Operation:
-1. Write new data to unused block
-2. Update metadata in log
-3. Commit metadata changes
-4. Mark old blocks for cleanup
-
-Power Failure Recovery:
-1. Scan all blocks for valid metadata
-2. Rebuild filesystem tree from valid blocks
-3. Discard incomplete/corrupted writes
-4. Continue from last consistent state
+Allocation Algorithm:
+1. Search for FREE block with lowest erase count
+2. If none found, trigger garbage collection
+3. Use lookahead buffer to find blocks efficiently
 ```
 
-### Memory Usage Breakdown
+### Write Process - Detailed Flow
 
-#### RAM Buffers (Static Allocation)
-```c
-T_littlefs_context g_littlefs_context = {
-  .lfs = { /* ~500 bytes - main filesystem state */ },
-  .cfg = { /* ~100 bytes - configuration */ },
-  .read_buffer[256],    // Cache for read operations
-  .prog_buffer[256],    // Cache for write operations
-  .lookahead_buffer[128] // Wear leveling lookahead
-};
+#### Small File Write (<256 bytes)
+```
+1. Buffer in RAM:
+   prog_buffer[256] ← [User data accumulated]
+
+2. On sync or buffer full:
+   Find free block → Write data + metadata → Update directory
+
+3. Directory update (atomic):
+   Metadata Pair A → Create new entry in Pair B → Switch active
 ```
 
-#### Flash Memory Layout (32MB Total)
+#### Large File Write (>4KB)
 ```
-┌─────────────────────────────────────────────────┐
-│ Block 0-1: Superblock + Backup Superblock      │ ← Filesystem metadata
-├─────────────────────────────────────────────────┤
-│ Block 2-31: Root Directory + System Files      │ ← Directory structure
-├─────────────────────────────────────────────────┤
-│ Block 32-8191: User Data Blocks                │ ← Application files
-│                                                 │   (~32MB available)
-└─────────────────────────────────────────────────┘
+1. First 4KB:
+   Block #100: [File header + 4KB data]
+
+2. Additional blocks:
+   Block #101: [Next 4KB + pointer to #100]
+   Block #102: [Next 4KB + pointer to #101 + skip to #100]
+
+3. Update directory entry:
+   "large_file.bin" → Points to last block (#102)
+
+Note: LittleFS stores file blocks in reverse order!
 ```
 
-### Performance Characteristics
+### Directory Structure - In-Depth
 
-#### Read Operations
-- **Sequential Read**: Fast (direct block access)
-- **Random Read**: Moderate (metadata lookup required)
-- **Small Files**: Efficient (metadata cached)
-
-#### Write Operations
-- **Small Writes**: Fast (buffered in RAM)
-- **Large Writes**: Moderate (multiple block allocation)
-- **Metadata Updates**: Fast (logged before commit)
-
-#### Erase Operations
-- **Background**: Automatic garbage collection
-- **Wear Leveling**: Distributes erases evenly
-- **Block Recycling**: Reuses erased blocks efficiently
-
-### Cache Strategy
 ```
-Read Cache (256 bytes):
-┌────────────────┐
-│ Last Read Data │ ← Speeds up sequential reads
-│ Block Metadata │ ← Avoids flash access for metadata
-└────────────────┘
+Directory Entry Format (32 bytes):
+┌────────────┬────────────┬────────────┬────────────┐
+│ Type (1B)  │ Length (1B)│ Name (22B) │ Data (8B)  │
+├────────────┼────────────┼────────────┼────────────┤
+│ 0x11 (File)│ 0x0A       │ "config.txt"│ Block #150 │
+│ 0x22 (Dir) │ 0x04       │ "logs"      │ Block #45  │
+└────────────┴────────────┴────────────┴────────────┘
 
-Write Cache (256 bytes):
-┌────────────────┐
-│ Pending Writes │ ← Buffers small writes
-│ Metadata Logs  │ ← Batches metadata updates
-└────────────────┘
-
-Lookahead Buffer (128 bytes):
-┌────────────────┐
-│ Free Block Map │ ← Tracks available blocks
-│ Erase Counters │ ← Wear leveling data
-└────────────────┘
+Inline Files (Optimization):
+Files ≤ 8 bytes are stored directly in directory entry!
+┌────────────┬────────────┬────────────┬────────────┐
+│ 0x13 (Inline)│ 0x05     │ "flag.txt" │ "true\0\0\0"│
+└────────────┴────────────┴────────────┴────────────┘
 ```
+
+### Wear Leveling - Advanced Algorithm
+
+```
+Dynamic Wear Leveling Process:
+
+1. Block Selection (using lookahead buffer):
+   ┌─────────────────────────────────────┐
+   │ Lookahead Buffer (128 bytes = 1024 blocks) │
+   │ Each bit = 1 block state            │
+   │ 0 = Used, 1 = Free                  │
+   └─────────────────────────────────────┘
+
+2. Erase Count Tracking:
+   - Stored in block metadata (8 bytes per block)
+   - Updated after each erase operation
+   - Compared during allocation decisions
+
+3. Block Migration (background process):
+   IF (max_erase_count - min_erase_count) > threshold:
+      Move data from low-erase block to high-erase block
+
+Example:
+Block #50:  1,000 erases (cold data)
+Block #200: 5,000 erases (hot data)
+→ Swap contents to balance wear
+```
+
+### Power-Fail Safety - Transaction Model
+
+```
+Atomic Operation Sequence:
+
+1. Prepare Phase:
+   ┌─────────────┐
+   │ Old State   │ ← Keep unchanged
+   └─────────────┘
+
+2. Write Phase:
+   ┌─────────────┐     ┌─────────────┐
+   │ Old State   │     │ New State   │
+   │ (Valid)     │     │ (Building)  │
+   └─────────────┘     └─────────────┘
+
+3. Commit Phase:
+   ┌─────────────┐     ┌─────────────┐
+   │ Old State   │     │ New State   │
+   │ (Valid)     │ ←───│ (Valid)     │
+   └─────────────┘     └─────────────┘
+
+4. Cleanup Phase:
+                       ┌─────────────┐
+                       │ New State   │
+                       │ (Valid)     │
+                       └─────────────┘
+
+Power failure at ANY stage = filesystem remains consistent!
+```
+
+### Cache Strategy - Performance Optimization
+
+```
+Three-Level Cache System:
+
+1. Read Cache (256 bytes):
+   ┌────────────────────────────────┐
+   │ Block #: 150                   │
+   │ Offset: 0                      │
+   │ Data: [First 256 bytes]        │
+   │ Hit Rate: ~80% for sequential  │
+   └────────────────────────────────┘
+
+2. Program Cache (256 bytes):
+   ┌────────────────────────────────┐
+   │ Pending writes accumulated     │
+   │ Flush on: sync() or cache full │
+   │ Reduces flash writes by 10x    │
+   └────────────────────────────────┘
+
+3. Metadata Cache (implicit):
+   - Directory entries cached during traversal
+   - Block allocation info cached in lookahead
+   - CRC results cached until block changes
+```
+
+### Real-World Example - File Creation
+
+```
+Creating "/logs/2025/sensor.csv":
+
+1. Path Resolution:
+   "/" → Read root metadata pair → Find "logs" entry
+   "/logs" → Read logs metadata pair → Find "2025" entry
+   "/logs/2025" → Read 2025 metadata pair → Create "sensor.csv"
+
+2. Block Allocation:
+   Lookahead scan → Find block #789 (erase count: 42)
+
+3. Write Sequence:
+   a) Allocate block #789 for file data
+   b) Update 2025 directory metadata:
+      - Write to inactive metadata block
+      - Add "sensor.csv" entry pointing to #789
+      - Update revision and CRC
+      - Switch active block
+
+4. Data Write:
+   Block #789: [CSV header + initial data]
+
+Total Flash Operations: 2 writes (metadata + data)
+```
+
+### Garbage Collection Details
+
+```
+Compaction Process:
+
+Before:
+┌─────┬─────┬─────┬─────┬─────┐
+│ A1  │ DEL │ A2  │ DEL │ A3  │  50% wasted space
+└─────┴─────┴─────┴─────┴─────┘
+
+During:
+1. Copy A1, A2, A3 to new blocks
+2. Update all references
+3. Mark old blocks for erasure
+
+After:
+┌─────┬─────┬─────┬─────┬─────┐
+│ A1  │ A2  │ A3  │ FREE│ FREE│  0% wasted space
+└─────┴─────┴─────┴─────┴─────┘
+
+Trigger: When free space < 25% of total
+```
+
+### Performance Analysis
+
+```
+Operation Costs (in flash operations):
+
+Create empty file:      2 ops (metadata + allocation)
+Write 100 bytes:        1 op  (fits in cache)
+Write 10KB:            3 ops (3 blocks)
+Delete file:           1 op  (metadata update)
+Create directory:      2 ops (metadata + allocation)
+List 100 files:        ~5 ops (metadata reads)
+
+Comparison with FAT32:
+Operation      LittleFS    FAT32
+─────────────────────────────────
+Create file    2 ops       4 ops (FAT + dir + ...)
+Small write    1 op        3 ops (FAT + data + dir)
+Delete file    1 op        2 ops (FAT + dir)
+Power safety   ✓ Built-in  ✗ Requires journaling
+```
+
+### Best Practices for MC80_4DC
+
+1. **File Size Recommendations**:
+   - Config files: Keep under 256 bytes (inline storage)
+   - Log files: Rotate at 1MB to maintain performance
+   - Binary data: Align to 4KB boundaries when possible
+
+2. **Directory Structure**:
+   - Keep directory depth under 5 levels
+   - Limit files per directory to 100 for fast access
+   - Use meaningful prefixes for quick sorting
+
+3. **Write Patterns**:
+   - Batch small writes using application buffers
+   - Call sync() only when necessary
+   - Use append mode for logs (efficient)
+
+4. **Maintenance**:
+   - Monitor free space (performance degrades <10% free)
+   - Implement periodic filesystem checks
+   - Plan for 20% overhead (wear leveling + metadata)
 
 ### Memory Layout
 The LittleFS uses the external OSPI flash memory:
