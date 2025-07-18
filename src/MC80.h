@@ -120,7 +120,7 @@
 #define STANDBY_SECURE_SRAM_SIZE             (0x00000400)
 
 // Конфигурация клоков
-// CPUCLK = 480 МГц
+// CPUCLK = 240 МГц
 // ICLK   = 240 МГц
 // PCLKA  = 120 МГц
 // PCLKB  = 60  МГц
@@ -132,7 +132,7 @@
 // EBCLK  = 60  МГц
 // FCLK   = 60  МГц
 
-#define FRQ_CPUCLK_MHZ                       480  // МГц
+#define FRQ_CPUCLK_MHZ                       240  // МГц
 #define FRQ_ICLK_MHZ                         240  // МГц
 #define FRQ_PCLKA_MHZ                        120  // МГц
 #define FRQ_PCLKB_MHZ                        60   // МГц
@@ -321,6 +321,9 @@ typedef struct
 #include "Led_blink.h"
 #include "Monitor_Motor.h"
 #include "Monitor_CAN.h"
+#include "Monitor_LittleFS.h"
+#include "Monitor_OSPI.h"
+#include "Monitor_RTT.h"
 #include "CAN_protocol.h"
 #include "System_error_flags.h"
 #include "CAN_message_handler.h"

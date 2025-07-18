@@ -82,9 +82,7 @@ static void FMSTR_Process_OS_IO(void)
       status = frm_serial_drv->_wait_char(&rx_char, 2);
       if (status == RES_OK)
       {
-        //ITM_EVENT8(1, rx_char);
-
-        if (FMSTR_Rx(rx_char))
+       if (FMSTR_Rx(rx_char))
           break;
       }
     } while (1);
@@ -109,7 +107,6 @@ static void FMSTR_Process_OS_IO(void)
         }
         break;
       }
-      //ITM_EVENT8(2, tx_char);
 
       // Накапливаем данные в промежуточный буффер, чтобы не заставлять драйвер отправлять данные по одному байту
       out_buff[cnt] = tx_char;

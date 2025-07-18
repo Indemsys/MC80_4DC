@@ -72,8 +72,9 @@ Revision: $Rev: 24316 $
 //
 // Take in and set to correct values for Cortex-A systems with CPU cache
 //
-//#define SEGGER_RTT_CPU_CACHE_LINE_SIZE            (32)          // Largest cache line size (in bytes) in the current system
-//#define SEGGER_RTT_UNCACHED_OFF                   (0xFB000000)  // Address alias where RTT CB and buffers can be accessed uncached
+#define SEGGER_RTT_CPU_CACHE_LINE_SIZE            (4096)        // 4KB alignment for J-Link RTT Viewer compatibility
+#define SEGGER_RTT_UNCACHED_OFF                   (0)           // No uncached offset for Cortex-M (no cache)
+#define RTT_USE_ASM                               (0)           // Disable ASM version when using cache line alignment
 //
 // Most common case:
 // Up-channel 0: RTT

@@ -36,7 +36,7 @@
                 </option>
                 <option>
                     <name>MacFile</name>
-                    <state></state>
+                    <state>$PROJ_DIR$\execUserReset.mac</state>
                 </option>
                 <option>
                     <name>MemOverride</name>
@@ -81,7 +81,7 @@
                 </option>
                 <option>
                     <name>OCProductVersion</name>
-                    <state>9.60.3.7274</state>
+                    <state>9.70.1.13552</state>
                 </option>
                 <option>
                     <name>OCDynDriverList</name>
@@ -797,7 +797,7 @@
                 </option>
                 <option>
                     <name>IjetPreferETB</name>
-                    <state>1</state>
+                    <state>0</state>
                 </option>
                 <option>
                     <name>IjetTraceSettingsList</name>
@@ -888,7 +888,7 @@
                 <debug>1</debug>
                 <option>
                     <name>JLinkSpeed</name>
-                    <state>1000</state>
+                    <state>50000</state>
                 </option>
                 <option>
                     <name>CCJLinkDoLogfile</name>
@@ -998,39 +998,39 @@
                 </option>
                 <option>
                     <name>CCCatchCORERESET</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchMMERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchNOCPERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchCHRERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchSTATERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchBUSERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchINTERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchSFERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchHARDERR</name>
-                    <state>0</state>
+                    <state>1</state>
                 </option>
                 <option>
                     <name>CCCatchDummy</name>
@@ -1055,7 +1055,7 @@
                 </option>
                 <option>
                     <name>CCCpuClockEdit</name>
-                    <state>480</state>
+                    <state>240</state>
                 </option>
                 <option>
                     <name>CCSwoClockAuto</name>
@@ -1741,7 +1741,7 @@
                 </option>
                 <option>
                     <name>OCProductVersion</name>
-                    <state>9.60.3.7274</state>
+                    <state>9.70.1.13552</state>
                 </option>
                 <option>
                     <name>OCDynDriverList</name>
@@ -2457,7 +2457,7 @@
                 </option>
                 <option>
                     <name>IjetPreferETB</name>
-                    <state>1</state>
+                    <state>0</state>
                 </option>
                 <option>
                     <name>IjetTraceSettingsList</name>

@@ -22,9 +22,7 @@ void Main_thread_create(void* first_unused_memory)
   SEGGER_RTT_Init();
 
   // Initialize memory pools
-  App_memory_pools_creation(first_unused_memory);
-
-  // Initialize each kernel object
+  App_memory_pools_creation(first_unused_memory);  // Initialize each kernel object
   tx_thread_create(
   &Main_thread,
   (CHAR*)"MAIN",

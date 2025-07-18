@@ -1,0 +1,44 @@
+execUserReset()
+//execConfigureTraceETM()
+{
+  enableTraceClock();
+  
+  __message "---- execUserReset Start";
+
+  /* -------- 1.  Unlock MPC write-protect (PWPR) ---------------- */
+  __writeMemory32(0x40040800, 0x00000000, "Memory");   /* B0WI = 0  */
+  __writeMemory32(0x40040800, 0x00000040, "Memory");   /* PFSWE = 1 */
+
+  /* -------- 2.  Port-3 pins 4-8 → PSEL = 0x0E (Trace) --------- */
+  __writeMemory32(0x40041610, 0x0E, "Memory");         /* P304 = TDATA3 */
+  __writeMemory32(0x40041614, 0x0E, "Memory");         /* P305 = TDATA2 */
+  __writeMemory32(0x40041618, 0x0E, "Memory");         /* P306 = TDATA1 */
+  __writeMemory32(0x4004161C, 0x0E, "Memory");         /* P307 = TDATA0 */
+  __writeMemory32(0x40041620, 0x0E, "Memory");         /* P308 = TRACECLK */
+
+  /* -------- 3.  Relock PWPR ----------------------------------- */
+  __writeMemory32(0x40040800, 0x00000080, "Memory");   /* B0WI = 1, PFSWE = 0 */
+
+  /* -------- 4.  Enable trace port, high-speed drive ----------- */
+  __writeMemory32(0x4001B030, 0x00000009, "Memory");   /* TRPEN=1, DRV=2 */
+
+  /* -------- 5.  Funnel: ETM+ITM straight to TPIU -------------- */
+  /*  Address 0xE0043000 is AHB alias of AP1 0x80013000 */
+  __writeMemory32(0x80013000, 0x00000300, "Memory");   /* HT=3, bits1:0=0 */
+
+
+  __var now;                                        /* объявление */
+  __var port;
+  __var funnel;
+  __var port_size;
+  now = __readMemory8(0x4001E03F, "Memory");        /* чтение TRCKCR */
+  port   = __readMemory8 (0x4001B030, "Memory");    /* TRPORTCR  */
+  funnel = __readMemory32(0x80013000, "AP1_Memory");   /* Funnel CTRL */
+  port_size = __getTracePortSize();
+  __message "Trace TRCKCR= 0x", now:%x, "  TRPORTCR= 0x"  , port:%x , "  FUNNEL= 0x" , funnel:%x, "  Trace port size=", port_size;
+  
+
+  __jlinkExecCommand("SelectTraceSource=1");
+  
+  __message "---- execUserReset End";
+}

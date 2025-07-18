@@ -14087,6 +14087,33 @@
                 </file>
             </group>
             <group>
+                <name>LittleFS</name>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\lfs.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\lfs.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\lfs_util.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\lfs_util.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\littlefs_adapter.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\littlefs_adapter.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\littlefs_demo.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\LittleFS\littlefs_demo.h</name>
+                </file>
+            </group>
+            <group>
                 <name>Logger</name>
                 <file>
                     <name>$PROJ_DIR$\src\Logger\Logger.c</name>
@@ -14136,6 +14163,12 @@
             </group>
             <group>
                 <name>SEGGER_RTT</name>
+                <file>
+                    <name>$PROJ_DIR$\src\SEGGER_RTT\RTT_utils.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\SEGGER_RTT\RTT_utils.h</name>
+                </file>
                 <file>
                     <name>$PROJ_DIR$\src\SEGGER_RTT\SEGGER_RTT.c</name>
                 </file>
@@ -14242,6 +14275,12 @@
                     <name>$PROJ_DIR$\src\VT100\Monitor_diagnostic.h</name>
                 </file>
                 <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_LittleFS.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_LittleFS.h</name>
+                </file>
+                <file>
                     <name>$PROJ_DIR$\src\VT100\Monitor_log_viewer.c</name>
                 </file>
                 <file>
@@ -14260,10 +14299,22 @@
                     <name>$PROJ_DIR$\src\VT100\Monitor_Motor.h</name>
                 </file>
                 <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_OSPI.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_OSPI.h</name>
+                </file>
+                <file>
                     <name>$PROJ_DIR$\src\VT100\Monitor_params_editor.c</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\VT100\Monitor_params_editor.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_RTT.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\VT100\Monitor_RTT.h</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\VT100\Monitor_TMC6200.c</name>

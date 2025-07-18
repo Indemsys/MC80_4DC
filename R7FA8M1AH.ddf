@@ -1,9 +1,9 @@
 
 ;; Architecture extensions
-#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-MPU.ddf"
-#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-CACHE.ddf"
-#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\ARMv8-M-TPIU.ddf"
-#include weak "C:\iar\ewarm-9.60.3\arm\config\debugger\ARM\CoreSight-CTI.ddf"
+#include weak "C:\iar\ewarm-9.70.1\arm\config\debugger\ARM\ARMv8-M-MPU.ddf"
+#include weak "C:\iar\ewarm-9.70.1\arm\config\debugger\ARM\ARMv8-M-CACHE.ddf"
+#include weak "C:\iar\ewarm-9.70.1\arm\config\debugger\ARM\ARMv8-M-TPIU.ddf"
+#include weak "C:\iar\ewarm-9.70.1\arm\config\debugger\ARM\CoreSight-CTI.ddf"
 
 ;; Memory information ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

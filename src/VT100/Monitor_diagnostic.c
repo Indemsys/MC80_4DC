@@ -15,14 +15,17 @@ static const char *_Get_task_state_str(UINT state);
 // clang-format off
 const T_VT100_Menu_item MENU_DIAGNOSTIC_ITEMS[] =
 {
-  { '1', Diagnostic_Show_pin_states,   0                 },
-  { '2', Diagnostic_Show_task_states,  0                 },
-  { '3', Diagnostic_Show_heap_state,   0                 },
-  { '4', Diagnostic_TMC6200,           0                 },
-  { '5', Diagnostic_Motor,             0                 },
-  { '6', Diagnostic_CAN,               0                 },
-  { 'R', 0,                            0                 },
-  { 'M', 0,                            (void *)&MENU_MAIN},
+  { '1', Diagnostic_Show_pin_states,   0                      },
+  { '2', Diagnostic_Show_task_states,  0                      },
+  { '3', Diagnostic_Show_heap_state,   0                      },
+  { '4', Diagnostic_TMC6200,           0                      },
+  { '5', Diagnostic_Motor,             0                      },
+  { '6', Diagnostic_CAN,               0                      },
+  { '7', 0,                            (void *)&MENU_LittleFS },
+  { '8', 0,                            (void *)&MENU_RTT      },
+  { '9', 0,                            (void *)&MENU_OSPI     },
+  { 'R', 0,                            0                      },
+  { 'M', 0,                            (void *)&MENU_MAIN     },
   { 0 } // End of menu
 };
 // clang-format on
@@ -36,6 +39,9 @@ const T_VT100_Menu MENU_DIAGNOSTIC = {
   "\033[5C <4> - TMC6200 driver state\r\n"
   "\033[5C <5> - Motor diagnostic\r\n"
   "\033[5C <6> - CAN diagnostic\r\n"
+  "\033[5C <7> - LittleFS file system\r\n"
+  "\033[5C <8> - RTT testing menu\r\n"
+  "\033[5C <9> - OSPI flash testing\r\n"
   "\033[5C <R> - Display previous menu\r\n"
   "\033[5C <M> - Display main menu\r\n",
   MENU_DIAGNOSTIC_ITEMS,
