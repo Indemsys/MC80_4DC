@@ -470,10 +470,10 @@ Block States:
 ┌──────────┬─────────────────────────────────┐
 │ State    │ Description                     │
 ├──────────┼─────────────────────────────────┤
-│ FREE     │ Erased and ready for use       │
-│ USED     │ Contains valid data            │
-│ MOVING   │ Being relocated (wear leveling)│
-│ BAD      │ Failed erase/write operations  │
+│ FREE     │ Erased and ready for use        │
+│ USED     │ Contains valid data             │
+│ MOVING   │ Being relocated (wear leveling) │
+│ BAD      │ Failed erase/write operations   │
 └──────────┴─────────────────────────────────┘
 
 Allocation Algorithm:
@@ -515,18 +515,18 @@ Note: LittleFS stores file blocks in reverse order!
 
 ```
 Directory Entry Format (32 bytes):
-┌────────────┬────────────┬────────────┬────────────┐
-│ Type (1B)  │ Length (1B)│ Name (22B) │ Data (8B)  │
-├────────────┼────────────┼────────────┼────────────┤
-│ 0x11 (File)│ 0x0A       │ "config.txt"│ Block #150 │
-│ 0x22 (Dir) │ 0x04       │ "logs"      │ Block #45  │
-└────────────┴────────────┴────────────┴────────────┘
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│ Type (1B)   │ Length (1B) │ Name (22B)  │ Data (8B)   │
+├─────────────┼─────────────┼─────────────┼─────────────┤
+│ 0x11 (File) │ 0x0A        │ "config.txt"│ Block #150  │
+│ 0x22 (Dir)  │ 0x04        │ "logs"      │ Block #45   │
+└─────────────┴─────────────┴─────────────┴─────────────┘
 
 Inline Files (Optimization):
 Files ≤ 8 bytes are stored directly in directory entry!
-┌────────────┬────────────┬────────────┬────────────┐
-│ 0x13 (Inline)│ 0x05     │ "flag.txt" │ "true\0\0\0"│
-└────────────┴────────────┴────────────┴────────────┘
+┌──────────────┬─────────────┬─────────────┬─────────────┐
+│ 0x13 (Inline)│ 0x05        │ "flag.txt"  │ "true\0\0\0"│
+└──────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
 ### Wear Leveling - Advanced Algorithm
@@ -535,11 +535,11 @@ Files ≤ 8 bytes are stored directly in directory entry!
 Dynamic Wear Leveling Process:
 
 1. Block Selection (using lookahead buffer):
-   ┌─────────────────────────────────────┐
-   │ Lookahead Buffer (128 bytes = 1024 blocks) │
-   │ Each bit = 1 block state            │
-   │ 0 = Used, 1 = Free                  │
-   └─────────────────────────────────────┘
+   ┌─────────────────────────────────────────────────┐
+   │ Lookahead Buffer (128 bytes = 1024 blocks)      │
+   │ Each bit = 1 block state                        │
+   │ 0 = Used, 1 = Free                              │
+   └─────────────────────────────────────────────────┘
 
 2. Erase Count Tracking:
    - Stored in block metadata (8 bytes per block)
@@ -593,19 +593,19 @@ Power failure at ANY stage = filesystem remains consistent!
 Three-Level Cache System:
 
 1. Read Cache (256 bytes):
-   ┌────────────────────────────────┐
-   │ Block #: 150                   │
-   │ Offset: 0                      │
-   │ Data: [First 256 bytes]        │
-   │ Hit Rate: ~80% for sequential  │
-   └────────────────────────────────┘
+   ┌────────────────────────────────────────────────┐
+   │ Block #: 150                                   │
+   │ Offset: 0                                      │
+   │ Data: [First 256 bytes]                        │
+   │ Hit Rate: ~80% for sequential                  │
+   └────────────────────────────────────────────────┘
 
 2. Program Cache (256 bytes):
-   ┌────────────────────────────────┐
-   │ Pending writes accumulated     │
-   │ Flush on: sync() or cache full │
-   │ Reduces flash writes by 10x    │
-   └────────────────────────────────┘
+   ┌────────────────────────────────────────────────┐
+   │ Pending writes accumulated                     │
+   │ Flush on: sync() or cache full                 │
+   │ Reduces flash writes by 10x                    │
+   └────────────────────────────────────────────────┘
 
 3. Metadata Cache (implicit):
    - Directory entries cached during traversal
@@ -677,7 +677,7 @@ List 100 files:        ~5 ops (metadata reads)
 
 Comparison with FAT32:
 Operation      LittleFS    FAT32
-─────────────────────────────────
+─────────────────────────────────────
 Create file    2 ops       4 ops (FAT + dir + ...)
 Small write    1 op        3 ops (FAT + data + dir)
 Delete file    1 op        2 ops (FAT + dir)
