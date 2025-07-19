@@ -13,8 +13,8 @@
 // External OSPI driver reference
 extern const spi_flash_instance_t g_OSPI;
 
-#define OSPI_TEST_PATTERN_SIZE    256
-#define OSPI_TEST_SECTOR_SIZE     4096
+#define OSPI_TEST_PATTERN_SIZE 256
+#define OSPI_TEST_SECTOR_SIZE  4096
 
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
@@ -29,17 +29,16 @@ void OSPI_test_xip_mode(uint8_t keycode);
 // Internal helper functions
 static fsp_err_t _Ospi_ensure_driver_open(void);
 
-const T_VT100_Menu_item MENU_OSPI_ITEMS[] =
-{
-  { '1', OSPI_test_info,        0 },
-  { '2', OSPI_test_status,      0 },
-  { '3', OSPI_test_read,        0 },
-  { '4', OSPI_test_write,       0 },
-  { '5', OSPI_test_erase,       0 },
-  { '6', OSPI_test_pattern,     0 },
-  { '7', OSPI_test_sector,      0 },
-  { '8', OSPI_test_xip_mode,    0 },
-  { 'R', 0,                     0 },
+const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
+  { '1', OSPI_test_info, 0 },
+  { '2', OSPI_test_status, 0 },
+  { '3', OSPI_test_read, 0 },
+  { '4', OSPI_test_write, 0 },
+  { '5', OSPI_test_erase, 0 },
+  { '6', OSPI_test_pattern, 0 },
+  { '7', OSPI_test_sector, 0 },
+  { '8', OSPI_test_xip_mode, 0 },
+  { 'R', 0, 0 },
   { 0 }
 };
 
@@ -84,7 +83,7 @@ void OSPI_test_info(uint8_t keycode)
 
   // Try to get flash status to verify communication
   spi_flash_status_t status;
-  fsp_err_t err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  fsp_err_t          err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
 
   if (err == FSP_SUCCESS)
   {
@@ -141,7 +140,7 @@ void OSPI_test_status(uint8_t keycode)
   }
 
   spi_flash_status_t status;
-  fsp_err_t err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  fsp_err_t          err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
 
   if (err == FSP_SUCCESS)
   {
@@ -220,103 +219,225 @@ void OSPI_test_read(uint8_t keycode)
     return;
   }
 
-  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_TEST_PATTERN_SIZE);
-  if (read_buffer == NULL)
+  uint8_t *buffer1 = (uint8_t *)App_malloc(256);
+  uint8_t *buffer2 = (uint8_t *)App_malloc(256);
+  uint8_t *buffer3 = (uint8_t *)App_malloc(256);
+
+  if (!buffer1 || !buffer2 || !buffer3)
   {
-    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
+    MPRINTF("ERROR: Failed to allocate buffers\n\r");
+    if (buffer1) App_free(buffer1);
+    if (buffer2) App_free(buffer2);
+    if (buffer3) App_free(buffer3);
     MPRINTF("Press any key to continue...\n\r");
     uint8_t dummy_key;
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
 
-  // Clear buffer
-  memset(read_buffer, 0, OSPI_TEST_PATTERN_SIZE);
-
-  MPRINTF("Reading 256 bytes from address 0x00000000...\n\r");
-
-  // Exit XIP mode first
+  // Exit XIP mode to start fresh
   fsp_err_t err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
-  if (err != FSP_SUCCESS)
+  if (err == FSP_SUCCESS)
   {
-    MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
+    MPRINTF("Initial XIP exit: SUCCESS\n\r");
+  }
+  else
+  {
+    MPRINTF("Initial XIP exit: 0x%X (probably wasn't in XIP mode)\n\r", err);
   }
 
-  // Enter XIP mode for read
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+
+  MPRINTF("\n\r=== Test 1: Multiple reads in same XIP session ===\n\r");
+
+  // Enter XIP mode
   err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
   if (err != FSP_SUCCESS)
   {
-    RTT_printf(0, "  XIP enter failed: 0x%x\r\n", err);
-    App_free(read_buffer);
-    return;
+    MPRINTF("XIP enter failed: 0x%X\n\r", err);
+    goto cleanup;
+  }
+  MPRINTF("XIP mode entered\n\r");
+
+  // Add cache invalidation after XIP enter
+  SCB_InvalidateDCache();
+  __DSB();
+
+  R_BSP_SoftwareDelay(5, BSP_DELAY_UNITS_MILLISECONDS);
+
+  // First read using volatile pointer
+  MPRINTF("\n\rRead 1 (volatile pointer, address 0x%08X): ", OSPI_BASE_ADDRESS);
+  volatile uint8_t *vol_ptr = (volatile uint8_t *)OSPI_BASE_ADDRESS;
+  for (int i = 0; i < 16; i++)
+  {
+    buffer1[i] = vol_ptr[i];
+    MPRINTF("%02X ", buffer1[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Check if all 0xFF
+  bool all_ff = true;
+  for (int i = 0; i < 16; i++)
+  {
+    if (buffer1[i] != 0xFF)
+    {
+      all_ff = false;
+      break;
+    }
+  }
+  if (all_ff)
+  {
+    MPRINTF("WARNING: First read returned all 0xFF!\n\r");
   }
 
-  // Read data directly from XIP memory
-  memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
+  // Delay between reads
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
 
-  // Exit XIP mode
+  // Second read from same address without exit/enter
+  MPRINTF("\n\rRead 2 (same address, no exit/enter): ");
+  for (int i = 0; i < 16; i++)
+  {
+    buffer2[i] = vol_ptr[i];
+    MPRINTF("%02X ", buffer2[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Third read from different offset
+  MPRINTF("\n\rRead 3 (offset +256 bytes): ");
+  volatile uint8_t *vol_ptr2 = (volatile uint8_t *)(OSPI_BASE_ADDRESS + 256);
+  for (int i = 0; i < 16; i++)
+  {
+    buffer3[i] = vol_ptr2[i];
+    MPRINTF("%02X ", buffer3[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Compare reads
+  bool same = true;
+  for (int i = 0; i < 16; i++)
+  {
+    if (buffer1[i] != buffer2[i])
+    {
+      same = false;
+      break;
+    }
+  }
+  MPRINTF("\n\rRead 1 vs Read 2: %s\n\r", same ? "IDENTICAL" : "DIFFERENT");
+
+  // Exit and re-enter XIP
+  MPRINTF("\n\r=== Test 2: Read after XIP exit/enter cycle ===\n\r");
+
   err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
   if (err != FSP_SUCCESS)
   {
-    RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
-  }
-
-  err = FSP_SUCCESS; // Set success for the following check
-
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Read operation: SUCCESS\n\r");
-    MPRINTF("Data (first 32 bytes):\n\r");
-
-    for (int i = 0; i < 32; i++)
-    {
-      if (i % 16 == 0)
-      {
-        MPRINTF("%04X: ", i);
-      }
-      MPRINTF("%02X ", read_buffer[i]);
-      if (i % 16 == 15)
-      {
-        MPRINTF("\n\r");
-      }
-    }
+    MPRINTF("XIP exit failed: 0x%X\n\r", err);
   }
   else
   {
-    MPRINTF("Read operation: FAILED\n\r");
-    MPRINTF("Error code: 0x%X\n\r", err);
+    MPRINTF("XIP exit successful\n\r");
   }
 
-  // Test XIP read for comparison
-  MPRINTF("\n\rTesting XIP read from same address...\n\r");
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+
   err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
-  if (err == FSP_SUCCESS)
+  if (err != FSP_SUCCESS)
   {
-    MPRINTF("XIP mode entered successfully\n\r");
-
-    // Read directly from XIP address space
-    uint8_t *xip_address = (uint8_t *)OSPI_BASE_ADDRESS;
-    MPRINTF("XIP Data (first 32 bytes):\n\r");
-
-    for (int i = 0; i < 32; i++)
-    {
-      if (i % 16 == 0)
-      {
-        MPRINTF("%04X: ", i);
-      }
-      MPRINTF("%02X ", xip_address[i]);
-      if (i % 16 == 15)
-      {
-        MPRINTF("\n\r");
-      }
-    }
+    MPRINTF("XIP re-enter failed: 0x%X\n\r", err);
+    goto cleanup;
   }
-  else
+  MPRINTF("XIP re-enter successful\n\r");
+
+  // Invalidate cache again
+  SCB_InvalidateDCache();
+  __DSB();
+
+  R_BSP_SoftwareDelay(5, BSP_DELAY_UNITS_MILLISECONDS);
+
+  // Read after re-enter
+  MPRINTF("\n\rRead 4 (after exit/enter cycle): ");
+  for (int i = 0; i < 16; i++)
   {
-    MPRINTF("XIP enter failed: 0x%X\n\r", err);
+    uint8_t val = vol_ptr[i];
+    MPRINTF("%02X ", val);
   }
+  MPRINTF("\n\r");
 
-  App_free(read_buffer);
+  // Test hypothesis: read twice after each XIP enter
+  MPRINTF("\n\r=== Test 3: Double read after each XIP enter ===\n\r");
+
+  // Exit and enter again
+  R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+  R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  SCB_InvalidateDCache();
+  __DSB();
+  R_BSP_SoftwareDelay(5, BSP_DELAY_UNITS_MILLISECONDS);
+
+  MPRINTF("First read after new XIP enter: ");
+  for (int i = 0; i < 16; i++)
+  {
+    MPRINTF("%02X ", vol_ptr[i]);
+  }
+  MPRINTF("\n\r");
+
+  MPRINTF("Second read without exit/enter: ");
+  for (int i = 0; i < 16; i++)
+  {
+    MPRINTF("%02X ", vol_ptr[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Test with memory barriers
+  MPRINTF("\n\r=== Test 4: Testing with memory barriers ===\n\r");
+
+  MPRINTF("Read with DSB/ISB barriers: ");
+  __DSB();
+  __ISB();
+  for (int i = 0; i < 16; i++)
+  {
+    MPRINTF("%02X ", vol_ptr[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Test cache flush by address
+  MPRINTF("Read with cache invalidation by address: ");
+  SCB_InvalidateDCache_by_Addr((uint32_t *)vol_ptr, 16);
+  __DSB();
+  for (int i = 0; i < 16; i++)
+  {
+    MPRINTF("%02X ", vol_ptr[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Test reading different memory types
+  MPRINTF("\n\r=== Test 5: Different access patterns ===\n\r");
+
+  // Byte access
+  MPRINTF("Byte access: ");
+  for (int i = 0; i < 4; i++)
+  {
+    MPRINTF("%02X ", vol_ptr[i]);
+  }
+  MPRINTF("\n\r");
+
+  // Word access
+  MPRINTF("Word access: ");
+  volatile uint32_t *word_ptr = (volatile uint32_t *)OSPI_BASE_ADDRESS;
+  uint32_t           word     = word_ptr[0];
+  MPRINTF("%08X (bytes: %02X %02X %02X %02X)\n\r",
+          word,
+          (uint8_t)(word & 0xFF),
+          (uint8_t)((word >> 8) & 0xFF),
+          (uint8_t)((word >> 16) & 0xFF),
+          (uint8_t)((word >> 24) & 0xFF));
+
+cleanup:
+  // Final XIP exit
+  R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+
+  App_free(buffer1);
+  App_free(buffer2);
+  App_free(buffer3);
 
   MPRINTF("\n\rPress any key to continue...\n\r");
   uint8_t dummy_key;
@@ -364,7 +485,7 @@ void OSPI_test_write(uint8_t keycode)
   }
 
   uint8_t *write_buffer = (uint8_t *)App_malloc(64);
-  uint8_t *read_buffer = (uint8_t *)App_malloc(64);
+  uint8_t *read_buffer  = (uint8_t *)App_malloc(64);
 
   if (write_buffer == NULL || read_buffer == NULL)
   {
@@ -446,7 +567,7 @@ void OSPI_test_write(uint8_t keycode)
       RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
     }
 
-    err = FSP_SUCCESS; // Set success for the following check
+    err = FSP_SUCCESS;  // Set success for the following check
 
     if (err == FSP_SUCCESS)
     {
@@ -587,7 +708,7 @@ void OSPI_test_erase(uint8_t keycode)
         MPRINTF("Waited %u ms...\n\r", wait_count);
       }
 
-      if (wait_count > 5000) // 5 second timeout
+      if (wait_count > 5000)  // 5 second timeout
       {
         MPRINTF("Erase timeout!\n\r");
         break;
@@ -620,7 +741,7 @@ void OSPI_test_erase(uint8_t keycode)
         RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
       }
 
-      err = FSP_SUCCESS; // Set success for the following check
+      err = FSP_SUCCESS;  // Set success for the following check
 
       if (err == FSP_SUCCESS)
       {
@@ -720,13 +841,13 @@ void OSPI_test_pattern(uint8_t keycode)
   }
 
   uint8_t *write_buffer = (uint8_t *)App_malloc(OSPI_TEST_PATTERN_SIZE);
-  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_TEST_PATTERN_SIZE);
+  uint8_t *read_buffer  = (uint8_t *)App_malloc(OSPI_TEST_PATTERN_SIZE);
 
   // Declare variables used in goto sections to avoid bypass warnings
   spi_flash_status_t status;
-  uint32_t wait_count = 0;
-  bool match = true;
-  int first_error = -1;
+  uint32_t           wait_count  = 0;
+  bool               match       = true;
+  int                first_error = -1;
 
   if (write_buffer == NULL || read_buffer == NULL)
   {
@@ -743,7 +864,7 @@ void OSPI_test_pattern(uint8_t keycode)
   MPRINTF("Creating test patterns...\n\r");
   for (int i = 0; i < OSPI_TEST_PATTERN_SIZE; i++)
   {
-    write_buffer[i] = (uint8_t)(i ^ 0xAA); // XOR pattern
+    write_buffer[i] = (uint8_t)(i ^ 0xAA);  // XOR pattern
   }
 
   // Exit XIP mode
@@ -825,7 +946,7 @@ void OSPI_test_pattern(uint8_t keycode)
     MPRINTF("XIP exit failed: 0x%X\n\r", err);
   }
 
-  err = FSP_SUCCESS; // Set success for the following check
+  err = FSP_SUCCESS;  // Set success for the following check
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Read failed: 0x%X\n\r", err);
@@ -834,7 +955,7 @@ void OSPI_test_pattern(uint8_t keycode)
 
   // Step 4: Verify
   MPRINTF("Step 4: Verifying data...\n\r");
-  match = true;
+  match       = true;
   first_error = -1;
   for (int i = 0; i < OSPI_TEST_PATTERN_SIZE; i++)
   {
@@ -912,12 +1033,12 @@ void OSPI_test_sector(uint8_t keycode)
   MPRINTF("Testing sector operations in chunks of 256 bytes\n\r");
 
   uint8_t *chunk_write = (uint8_t *)App_malloc(256);
-  uint8_t *chunk_read = (uint8_t *)App_malloc(256);
+  uint8_t *chunk_read  = (uint8_t *)App_malloc(256);
 
   // Declare variables used in goto sections to avoid bypass warnings
   spi_flash_status_t status;
-  uint32_t wait_count = 0;
-  int errors = 0;
+  uint32_t           wait_count = 0;
+  int                errors     = 0;
 
   if (chunk_write == NULL || chunk_read == NULL)
   {
@@ -955,7 +1076,7 @@ void OSPI_test_sector(uint8_t keycode)
 
   // Write and verify each 256-byte chunk
   errors = 0;
-  for (int chunk = 0; chunk < 16; chunk++) // 4096 / 256 = 16 chunks
+  for (int chunk = 0; chunk < 16; chunk++)  // 4096 / 256 = 16 chunks
   {
     uint32_t address = chunk * 256;
 
@@ -1003,7 +1124,7 @@ void OSPI_test_sector(uint8_t keycode)
       MPRINTF("XIP exit for chunk %d failed: 0x%X\n\r", chunk, err);
     }
 
-    err = FSP_SUCCESS; // Set success for the following check
+    err = FSP_SUCCESS;  // Set success for the following check
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Read chunk %d failed: 0x%X\n\r", chunk, err);
@@ -1140,7 +1261,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
         MPRINTF("XIP exit failed: 0x%X\n\r", err);
       }
 
-      err = FSP_SUCCESS; // Set success for the following check
+      err = FSP_SUCCESS;  // Set success for the following check
 
       if (err == FSP_SUCCESS)
       {
@@ -1153,15 +1274,15 @@ void OSPI_test_xip_mode(uint8_t keycode)
           MPRINTF("XIP Re-enter: SUCCESS\n\r");
 
           // Compare first 256 bytes
-          bool match = true;
-          int diff_count = 0;
+          bool match      = true;
+          int  diff_count = 0;
           for (int i = 0; i < 256; i++)
           {
             if (xip_base[i] != compare_buffer[i])
             {
               match = false;
               diff_count++;
-              if (diff_count <= 5) // Show first 5 differences
+              if (diff_count <= 5)  // Show first 5 differences
               {
                 MPRINTF("Diff at %d: XIP=0x%02X SPI=0x%02X\n\r",
                         i, xip_base[i], compare_buffer[i]);
@@ -1197,8 +1318,8 @@ void OSPI_test_xip_mode(uint8_t keycode)
     MPRINTF("\n\rTest 4: Performance comparison...\n\r");
 
     // XIP performance
-    uint32_t start_time = tx_time_get();
-    volatile uint32_t checksum = 0;
+    uint32_t          start_time = tx_time_get();
+    volatile uint32_t checksum   = 0;
     for (int i = 0; i < 1024; i++)
     {
       checksum += xip_base[i];
@@ -1206,7 +1327,6 @@ void OSPI_test_xip_mode(uint8_t keycode)
     uint32_t xip_time = tx_time_get() - start_time;
 
     MPRINTF("XIP read 1KB: %lu ticks (checksum: 0x%08X)\n\r", xip_time, checksum);
-
   }
   else
   {
