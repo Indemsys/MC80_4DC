@@ -307,8 +307,8 @@ static ospi_b_timing_setting_t g_OSPI_timing_settings = {
 };
 
 static const spi_flash_erase_command_t g_OSPI_command_set_initial_erase_commands[] = {
-  { .command = 0x21, .size = 4096 },
-  { .command = 0xDC, .size = 262144 },
+  { .command = 0x20, .size = 4096 },
+  { .command = 0xD8, .size = 65536 },
   { .command = 0x60, .size = SPI_FLASH_ERASE_SIZE_CHIP_ERASE },
 };
 static const ospi_b_table_t g_OSPI_command_set_initial_erase_table = {
@@ -333,9 +333,9 @@ static const ospi_b_xspi_command_set_t g_OSPI_command_set_table[] = {
    .status_address         = 0U,
    .status_address_bytes   = (spi_flash_address_bytes_t)0U,
    .p_erase_commands       = &g_OSPI_command_set_initial_erase_table,
-   .read_command           = 0x13,
-   .read_dummy_cycles      = 0,
-   .program_command        = 0x12,
+   .read_command           = 0x13,  // 4-byte Fast Read (правильно для 4-byte mode)
+   .read_dummy_cycles      = 8,     // 8 dummy cycles для Fast Read в 1S-1S-1S
+   .program_command        = 0x12,  // 4-byte Page Program (правильно для 4-byte mode)
    .program_dummy_cycles   = 0,
    .row_load_command       = 0x00,
    .row_load_dummy_cycles  = 0,
@@ -357,7 +357,6 @@ static const ospi_b_xspi_command_set_t g_OSPI_command_set_table[] = {
    .status_address_bytes   = SPI_FLASH_ADDRESS_BYTES_4,
    .p_erase_commands       = &g_OSPI_command_set_high_speed_erase_table,
    .read_command           = 0xEEEE,
-
    .read_dummy_cycles      = 20,
    .program_command        = 0x1212,
    .program_dummy_cycles   = 0,
@@ -415,7 +414,7 @@ const spi_flash_cfg_t g_OSPI_cfg = {
   .address_bytes              = SPI_FLASH_ADDRESS_BYTES_4,
   .dummy_clocks               = SPI_FLASH_DUMMY_CLOCKS_DEFAULT, /* Unused by OSPI_B */
   .page_program_address_lines = (spi_flash_data_lines_t)0U,     /* Unused by OSPI_B */
-  .page_size_bytes            = 64,
+  .page_size_bytes            = 256,
   .write_status_bit           = 0,
   .write_enable_bit           = 1,
   .page_program_command       = 0, /* OSPI_B uses command sets. See g_OSPI_command_set. */
