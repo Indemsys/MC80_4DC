@@ -333,16 +333,16 @@ static const ospi_b_xspi_command_set_t g_OSPI_command_set_table[] = {
    .status_address         = 0U,
    .status_address_bytes   = (spi_flash_address_bytes_t)0U,
    .p_erase_commands       = &g_OSPI_command_set_initial_erase_table,
-   .read_command           = 0x13,  // 4-byte Fast Read (правильно для 4-byte mode)
+   .read_command           = 0x0C,  // FAST READ4B fast read data
    .read_dummy_cycles      = 8,     // 8 dummy cycles для Fast Read в 1S-1S-1S
-   .program_command        = 0x12,  // 4-byte Page Program (правильно для 4-byte mode)
+   .program_command        = 0x12,  // PP4B page program
    .program_dummy_cycles   = 0,
    .row_load_command       = 0x00,
    .row_load_dummy_cycles  = 0,
    .row_store_command      = 0x00,
    .row_store_dummy_cycles = 0,
    .write_enable_command   = 0x06,
-   .status_command         = 0x05,
+   .status_command         = 0x05,  // RDSR read status register
    .status_dummy_cycles    = 0,
   },
   {
@@ -356,17 +356,17 @@ static const ospi_b_xspi_command_set_t g_OSPI_command_set_table[] = {
    .status_address         = 0x00,
    .status_address_bytes   = SPI_FLASH_ADDRESS_BYTES_4,
    .p_erase_commands       = &g_OSPI_command_set_high_speed_erase_table,
-   .read_command           = 0xEEEE,
+   .read_command           = 0xEE13,  // 8READ  8 I/O read
    .read_dummy_cycles      = 20,
-   .program_command        = 0x1212,
+   .program_command        = 0x12ED,  // PP4B (Page Program)
    .program_dummy_cycles   = 0,
    .row_load_command       = 0x00,
    .row_load_dummy_cycles  = 0,
    .row_store_command      = 0x00,
    .row_store_dummy_cycles = 0,
-   .write_enable_command   = 0x0606,
-   .status_command         = 0x0505,
-   .status_dummy_cycles    = 3,
+   .write_enable_command   = 0x06F9,
+   .status_command         = 0x05FA,
+   .status_dummy_cycles    = 4,
   }
 };
 
