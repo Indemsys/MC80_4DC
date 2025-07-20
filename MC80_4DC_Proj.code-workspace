@@ -18,7 +18,8 @@
       "freemaster_tsa.h": "c",
       "main_task.h": "c",
       "system_error_flags.h": "c",
-      "rtt_utils.h": "c"
+      "rtt_utils.h": "c",
+      "ospi_config.h": "c"
     }
   }
 }

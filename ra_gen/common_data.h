@@ -157,16 +157,6 @@ extern NXD_ADDRESS g_ip0_ipv6_link_local_address;
 #define BSD_SUPPORT_TASK_PRIORITY   (3)
 
 void bsd_quick_setup();
-/* Transfer on DMAC Instance. */
-extern const transfer_instance_t g_transfer_OSPI;
-
-/** Access the DMAC instance using these structures when calling API functions directly (::p_api is not used). */
-extern dmac_instance_ctrl_t g_transfer_OSPI_ctrl;
-extern const transfer_cfg_t g_transfer_OSPI_cfg;
-
-#ifndef NULL
-void NULL(transfer_callback_args_t * p_args);
-#endif
 /** ELC Instance */
 extern const elc_instance_t g_elc;
 
@@ -179,50 +169,9 @@ extern const elc_cfg_t g_elc_cfg;
             #if OSPI_CFG_DOTF_SUPPORT_ENABLE
               #include "r_sce_if.h"
             #endif
-            extern const spi_flash_instance_t g_OSPI;
-            extern ospi_b_instance_ctrl_t g_OSPI_ctrl;
-            extern const spi_flash_cfg_t g_OSPI_cfg;
-/** Access the LevelX NOR SPI instance using these structures when calling functions directly (::p_api is not used). */
-extern rm_levelx_nor_spi_instance_ctrl_t g_rm_levelx_nor_OSPI_ctrl;
-extern rm_levelx_nor_spi_cfg_t g_rm_levelx_nor_OSPI_cfg;
 
-#ifndef rm_filex_levelx_nor_spi_callback
-void rm_filex_levelx_nor_spi_callback(rm_levelx_nor_spi_callback_args_t * p_args);
-#endif
 
-UINT g_rm_levelx_nor_OSPI_initialize(LX_NOR_FLASH *p_nor_flash);
-fsp_err_t g_rm_levelx_nor_OSPI_close();
-
-#define RA_NOT_DEFINED 0xFFFFFFFF
-#if (RA_NOT_DEFINED != RA_NOT_DEFINED)
-#define G_RM_LEVELX_NOR_OSPI_SECTOR_SIZE (RA_NOT_DEFINED)
-#elif (RA_NOT_DEFINED != RA_NOT_DEFINED)
-#define G_RM_LEVELX_NOR_OSPI_SECTOR_SIZE (RA_NOT_DEFINED)
-#else
-#define G_RM_LEVELX_NOR_OSPI_SECTOR_SIZE (4096)
-#endif
-#undef RA_NOT_DEFINED
-extern LX_NOR_FLASH g_lx_NOR;
-extern const rm_filex_levelx_nor_instance_t g_rm_filex_levelx_NOR_instance;
-
-/** Access the FileX LevelX NOR instance using these structures when calling API functions directly (::p_api is not used). */
-extern rm_filex_levelx_nor_instance_ctrl_t g_rm_filex_levelx_NOR_ctrl;
-extern const rm_filex_levelx_nor_cfg_t g_rm_filex_levelx_NOR_cfg;
-
-#ifndef g_rm_filex_levelx_NOR_callback
-void g_rm_filex_levelx_NOR_callback(rm_filex_levelx_nor_callback_args_t * p_args);
-#endif
-#define G_FX_MEDIA_OSPI_NOR_MEDIA_MEMORY_SIZE (512)
-#define G_FX_MEDIA_OSPI_NOR_VOLUME_NAME ("Volume 1")
-#define G_FX_MEDIA_OSPI_NOR_NUMBER_OF_FATS (1)
-#define G_FX_MEDIA_OSPI_NOR_DIRECTORY_ENTRIES (256)
-#define G_FX_MEDIA_OSPI_NOR_HIDDEN_SECTORS (0)
-#define G_FX_MEDIA_OSPI_NOR_TOTAL_SECTORS (57337)
-#define G_FX_MEDIA_OSPI_NOR_BYTES_PER_SECTOR (512)
-#define G_FX_MEDIA_OSPI_NOR_SECTORS_PER_CLUSTER (1)
-#define G_FX_MEDIA_OSPI_NOR_VOLUME_SERIAL_NUMBER (12345)
-#define G_FX_MEDIA_OSPI_NOR_BOUNDARY_UNIT (128)
-#define IOPORT_CFG_NAME g_bsp_pin_cfg
+            #define IOPORT_CFG_NAME g_bsp_pin_cfg
 #define IOPORT_CFG_OPEN R_IOPORT_Open
 #define IOPORT_CFG_CTRL g_ioport_ctrl
 

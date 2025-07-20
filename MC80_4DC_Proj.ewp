@@ -9694,10 +9694,22 @@
                     <name>$PROJ_DIR$\src\Board\IO_extender.h</name>
                 </file>
                 <file>
+                    <name>$PROJ_DIR$\src\Board\LevelX_config.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\LevelX_config.h</name>
+                </file>
+                <file>
                     <name>$PROJ_DIR$\src\Board\MotDrv_TMC6200.c</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Board\MotDrv_TMC6200.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\OSPI_config.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\OSPI_config.h</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Board\SPI_Display.c</name>

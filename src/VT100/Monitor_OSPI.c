@@ -205,6 +205,16 @@ void OSPI_test_status(uint8_t keycode)
 void OSPI_test_read(uint8_t keycode)
 {
   GET_MCBL;
+
+  // Declare all variables at the beginning to avoid goto bypass warnings
+  fsp_err_t err;
+  volatile uint8_t *vol_ptr;
+  bool all_ff;
+  volatile uint8_t *vol_ptr2;
+  bool same;
+  volatile uint32_t *word_ptr;
+  uint32_t word;
+
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== OSPI Read Test =====\n\r");
 
@@ -236,7 +246,7 @@ void OSPI_test_read(uint8_t keycode)
   }
 
   // Exit XIP mode to start fresh
-  fsp_err_t err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Initial XIP exit: SUCCESS\n\r");
@@ -267,7 +277,7 @@ void OSPI_test_read(uint8_t keycode)
 
   // First read using volatile pointer
   MPRINTF("\n\rRead 1 (volatile pointer, address 0x%08X): ", OSPI_BASE_ADDRESS);
-  volatile uint8_t *vol_ptr = (volatile uint8_t *)OSPI_BASE_ADDRESS;
+  vol_ptr = (volatile uint8_t *)OSPI_BASE_ADDRESS;
   for (int i = 0; i < 16; i++)
   {
     buffer1[i] = vol_ptr[i];
@@ -276,7 +286,7 @@ void OSPI_test_read(uint8_t keycode)
   MPRINTF("\n\r");
 
   // Check if all 0xFF
-  bool all_ff = true;
+  all_ff = true;
   for (int i = 0; i < 16; i++)
   {
     if (buffer1[i] != 0xFF)
@@ -304,7 +314,7 @@ void OSPI_test_read(uint8_t keycode)
 
   // Third read from different offset
   MPRINTF("\n\rRead 3 (offset +256 bytes): ");
-  volatile uint8_t *vol_ptr2 = (volatile uint8_t *)(OSPI_BASE_ADDRESS + 256);
+  vol_ptr2 = (volatile uint8_t *)(OSPI_BASE_ADDRESS + 256);
   for (int i = 0; i < 16; i++)
   {
     buffer3[i] = vol_ptr2[i];
@@ -313,7 +323,7 @@ void OSPI_test_read(uint8_t keycode)
   MPRINTF("\n\r");
 
   // Compare reads
-  bool same = true;
+  same = true;
   for (int i = 0; i < 16; i++)
   {
     if (buffer1[i] != buffer2[i])
@@ -422,8 +432,8 @@ void OSPI_test_read(uint8_t keycode)
 
   // Word access
   MPRINTF("Word access: ");
-  volatile uint32_t *word_ptr = (volatile uint32_t *)OSPI_BASE_ADDRESS;
-  uint32_t           word     = word_ptr[0];
+  word_ptr = (volatile uint32_t *)OSPI_BASE_ADDRESS;
+  word     = word_ptr[0];
   MPRINTF("%08X (bytes: %02X %02X %02X %02X)\n\r",
           word,
           (uint8_t)(word & 0xFF),
