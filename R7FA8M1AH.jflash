@@ -1,4 +1,4 @@
-  AppVersion = 82800
+  AppVersion = 85200
   FileVersion = 2
 [GENERAL]
   aATEModuleSel[24] = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -80,7 +80,6 @@
 [FLASH7]
   BankName = "External OSPI flash CS0"
   BaseAddr = 0x80000000
-  Disabled = 1
 [FLASH8]
   BankName = "External OSPI flash CS1"
   BaseAddr = 0x90000000

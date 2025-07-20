@@ -55,7 +55,7 @@
         <EnforceMemoryConfiguration>0</EnforceMemoryConfiguration>
     </ArmDriver>
     <DebugChecksum>
-        <Checksum>2659469483</Checksum>
+        <Checksum>402560012</Checksum>
     </DebugChecksum>
     <InterruptStripe>
         <Title0>USBFS_FIFO_0</Title0>

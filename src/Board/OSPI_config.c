@@ -1,30 +1,31 @@
 #include "App.h"
+#include "mx25um25645g.h"
 
 // === OSPI Transfer (DMA) Configuration ===
 #if OSPI_B_CFG_DMAC_SUPPORT_ENABLE
 dmac_instance_ctrl_t g_transfer_OSPI_ctrl;
-transfer_info_t g_transfer_OSPI_info = {
-  .transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED,
-  .transfer_settings_word_b.repeat_area    = TRANSFER_REPEAT_AREA_SOURCE,
-  .transfer_settings_word_b.irq            = TRANSFER_IRQ_END,
-  .transfer_settings_word_b.chain_mode     = TRANSFER_CHAIN_MODE_DISABLED,
-  .transfer_settings_word_b.src_addr_mode  = TRANSFER_ADDR_MODE_INCREMENTED,
-  .transfer_settings_word_b.size           = TRANSFER_SIZE_1_BYTE,
-  .transfer_settings_word_b.mode           = TRANSFER_MODE_BLOCK,
-  .p_dest                                  = (void *)NULL,
-  .p_src                                   = (void const *)NULL,
-  .num_blocks                              = 1,
-  .length                                  = 64,
+transfer_info_t      g_transfer_OSPI_info = {
+       .transfer_settings_word_b.dest_addr_mode = TRANSFER_ADDR_MODE_INCREMENTED,
+       .transfer_settings_word_b.repeat_area    = TRANSFER_REPEAT_AREA_SOURCE,
+       .transfer_settings_word_b.irq            = TRANSFER_IRQ_END,
+       .transfer_settings_word_b.chain_mode     = TRANSFER_CHAIN_MODE_DISABLED,
+       .transfer_settings_word_b.src_addr_mode  = TRANSFER_ADDR_MODE_INCREMENTED,
+       .transfer_settings_word_b.size           = TRANSFER_SIZE_1_BYTE,
+       .transfer_settings_word_b.mode           = TRANSFER_MODE_BLOCK,
+       .p_dest                                  = (void *)NULL,
+       .p_src                                   = (void const *)NULL,
+       .num_blocks                              = 1,
+       .length                                  = 64,
 };
 
 const dmac_extended_cfg_t g_transfer_OSPI_extend = {
   .offset          = 0,
   .src_buffer_size = 0,
-#if defined(VECTOR_NUMBER_DMAC3_INT)
+  #if defined(VECTOR_NUMBER_DMAC3_INT)
   .irq = VECTOR_NUMBER_DMAC3_INT,
-#else
+  #else
   .irq = FSP_INVALID_VECTOR,
-#endif
+  #endif
   .ipl               = (10),
   .channel           = 3,
   .p_callback        = NULL,
@@ -62,9 +63,9 @@ static ospi_b_timing_setting_t g_OSPI_timing_settings = {
 
 // Erase commands for Standard SPI mode (1S-1S-1S)
 static const spi_flash_erase_command_t g_OSPI_command_set_initial_erase_commands[] = {
-  { .command = 0x21, .size = 4096 },                             // 4KB Sector Erase with 4-byte address
-  { .command = 0xDC, .size = 262144 },                           // 256KB Block Erase with 4-byte address
-  { .command = 0x60, .size = SPI_FLASH_ERASE_SIZE_CHIP_ERASE },  // Chip Erase
+  { .command = MX25_CMD_SE4B, .size = MX25UM25645G_SECTOR_SIZE },       // 4KB Sector Erase with 4-byte address
+  { .command = MX25_CMD_BE4B, .size = MX25UM25645G_BLOCK_SIZE },        // 64KB Block Erase with 4-byte address
+  { .command = MX25_CMD_CE, .size = SPI_FLASH_ERASE_SIZE_CHIP_ERASE },  // Chip Erase
 };
 
 // Erase table for Standard SPI mode
@@ -87,51 +88,51 @@ const ospi_b_table_t g_OSPI_command_set_high_speed_erase_table                  
 const ospi_b_xspi_command_set_t g_OSPI_command_set_table[] = {
   {
    // Standard SPI mode (1S-1S-1S) configuration
-   .protocol               = SPI_FLASH_PROTOCOL_1S_1S_1S,              // Standard SPI: команда, адрес и данные по одной линии
-   .frame_format           = OSPI_B_FRAME_FORMAT_STANDARD,             // Стандартный SPI формат без расширений
-   .latency_mode           = OSPI_B_LATENCY_MODE_FIXED,                // Фиксированная задержка (постоянные dummy cycles)
-   .command_bytes          = OSPI_B_COMMAND_BYTES_1,                   // 1 байт команды (стандартные SPI команды)
-   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                // 4 байта адреса (для 32MB памяти)
-   .address_msb_mask       = 0xF0,                                     // Маска старших 4 бит адреса
-   .status_needs_address   = false,                                    // Команда статуса НЕ требует адреса
-   .status_address         = 0U,                                       // Адрес для статуса (не используется)
-   .status_address_bytes   = (spi_flash_address_bytes_t)0U,            // Размер адреса статуса (не используется)
-   .p_erase_commands       = &g_OSPI_command_set_initial_erase_table,  // Таблица команд стирания для SPI
-   .read_command           = 0x0C,                                     // Fast Read с 4-байтным адресом
-   .read_dummy_cycles      = 8,                                        // 8 пустых тактов между адресом и данными
-   .program_command        = 0x12,                                     // Page Program с 4-байтным адресом
-   .program_dummy_cycles   = 0,                                        // Без пустых тактов для записи
-   .row_load_command       = 0x00,                                     // Команда загрузки строки (не используется)
-   .row_load_dummy_cycles  = 0,                                        // Пустые такты для row load
-   .row_store_command      = 0x00,                                     // Команда сохранения строки (не используется)
-   .row_store_dummy_cycles = 0,                                        // Пустые такты для row store
-   .write_enable_command   = 0x06,                                     // Write Enable (WREN)
-   .status_command         = 0x05,                                     // Read Status Register (RDSR)
-   .status_dummy_cycles    = 0,                                        // Без пустых тактов для статуса
+   .protocol               = SPI_FLASH_PROTOCOL_1S_1S_1S,              // Standard SPI: command, address and data on single line
+   .frame_format           = OSPI_B_FRAME_FORMAT_STANDARD,             // Standard SPI format without extensions
+   .latency_mode           = OSPI_B_LATENCY_MODE_FIXED,                // Fixed latency (constant dummy cycles)
+   .command_bytes          = OSPI_B_COMMAND_BYTES_1,                   // 1 byte command (standard SPI commands)
+   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                // 4 byte address (for 32MB memory)
+   .address_msb_mask       = 0xF0,                                     // Mask for upper 4 bits of address
+   .status_needs_address   = false,                                    // Status command does NOT require address
+   .status_address         = 0U,                                       // Status address (not used)
+   .status_address_bytes   = (spi_flash_address_bytes_t)0U,            // Status address size (not used)
+   .p_erase_commands       = &g_OSPI_command_set_initial_erase_table,  // Erase commands table for SPI
+   .read_command           = MX25_CMD_FAST_READ4B,                     // Fast Read with 4-byte address
+   .read_dummy_cycles      = 8,                                        // 8 dummy cycles between address and data
+   .program_command        = MX25_CMD_PP4B,                            // Page Program with 4-byte address
+   .program_dummy_cycles   = 0,                                        // No dummy cycles for write
+   .row_load_command       = 0x00,                                     // Row load command (not used)
+   .row_load_dummy_cycles  = 0,                                        // Dummy cycles for row load
+   .row_store_command      = 0x00,                                     // Row store command (not used)
+   .row_store_dummy_cycles = 0,                                        // Dummy cycles for row store
+   .write_enable_command   = MX25_CMD_WREN,                            // Write Enable
+   .status_command         = MX25_CMD_RDSR,                            // Read Status Register
+   .status_dummy_cycles    = 0,                                        // No dummy cycles for status
   },
   {
    // Octal DDR mode (8D-8D-8D) configuration
-   .protocol               = SPI_FLASH_PROTOCOL_8D_8D_8D,                 // Octal DDR: 8 линий с двойной скоростью
-   .frame_format           = OSPI_B_FRAME_FORMAT_XSPI_PROFILE_1,          // Расширенный XSPI формат для высоких скоростей
-   .latency_mode           = OSPI_B_LATENCY_MODE_FIXED,                   // Фиксированная задержка
-   .command_bytes          = OSPI_B_COMMAND_BYTES_2,                      // 2 байта команды (дублированные для DDR)
-   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 байта адреса
-   .address_msb_mask       = 0xF0,                                        // Маска старших битов адреса
-   .status_needs_address   = true,                                        // Команда статуса ТРЕБУЕТ адрес в Octal DDR
-   .status_address         = 0x00,                                        // Адрес для чтения статуса
-   .status_address_bytes   = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 байта для адреса статуса
-   .p_erase_commands       = &g_OSPI_command_set_high_speed_erase_table,  // Пустая таблица (стирание только в SPI)
-   .read_command           = 0xEE13,                                      // Octal DDR Read (0xEE дублированная)
-   .read_dummy_cycles      = 20,                                          // 20 пустых тактов (критично для 200MHz)
-   .program_command        = 0x12ED,                                      // Octal DDR Page Program
-   .program_dummy_cycles   = 0,                                           // Без пустых тактов для записи
-   .row_load_command       = 0x00,                                        // Не используется в MX25UM25645G
-   .row_load_dummy_cycles  = 0,                                           // Не используется
-   .row_store_command      = 0x00,                                        // Не используется в MX25UM25645G
-   .row_store_dummy_cycles = 0,                                           // Не используется
-   .write_enable_command   = 0x06F9,                                      // Write Enable (0x06 + инверсия F9)
-   .status_command         = 0x05FA,                                      // Read Status (0x05 + инверсия FA)
-   .status_dummy_cycles    = 4,                                           // 4 пустых такта для статуса в DDR
+   .protocol               = SPI_FLASH_PROTOCOL_8D_8D_8D,                 // Octal DDR: 8 lines with double data rate
+   .frame_format           = OSPI_B_FRAME_FORMAT_XSPI_PROFILE_1,          // Extended XSPI format for high speeds
+   .latency_mode           = OSPI_B_LATENCY_MODE_FIXED,                   // Fixed latency
+   .command_bytes          = OSPI_B_COMMAND_BYTES_2,                      // 2 byte command (duplicated for DDR)
+   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 byte address
+   .address_msb_mask       = 0xF0,                                        // Address upper bits mask
+   .status_needs_address   = true,                                        // Status command REQUIRES address in Octal DDR
+   .status_address         = 0x00,                                        // Address for status read
+   .status_address_bytes   = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 bytes for status address
+   .p_erase_commands       = &g_OSPI_command_set_high_speed_erase_table,  // Empty table (erase only in SPI)
+   .read_command           = MX25_OPI_8READ_DTR,                          // Octal DDR Read
+   .read_dummy_cycles      = 20,                                          // 20 dummy cycles (critical for 200MHz)
+   .program_command        = MX25_OPI_PP4B_STR,                           // Octal STR Page Program
+   .program_dummy_cycles   = 0,                                           // No dummy cycles for write
+   .row_load_command       = 0x00,                                        // Not used in MX25UM25645G
+   .row_load_dummy_cycles  = 0,                                           // Not used
+   .row_store_command      = 0x00,                                        // Not used in MX25UM25645G
+   .row_store_dummy_cycles = 0,                                           // Not used
+   .write_enable_command   = MX25_OPI_WREN_STR,                           // Write Enable
+   .status_command         = MX25_OPI_RDSR_STR,                           // Read Status
+   .status_dummy_cycles    = 4,                                           // 4 dummy cycles for status in DDR
   }
 };
 
@@ -181,7 +182,7 @@ const spi_flash_cfg_t g_OSPI_cfg = {
   .address_bytes              = SPI_FLASH_ADDRESS_BYTES_4,       // 4-byte addressing for 32MB
   .dummy_clocks               = SPI_FLASH_DUMMY_CLOCKS_DEFAULT,  // Unused by OSPI_B
   .page_program_address_lines = (spi_flash_data_lines_t)0U,      // Unused by OSPI_B
-  .page_size_bytes            = 256,                             // Page size for MX25UM25645G
+  .page_size_bytes            = MX25UM25645G_PAGE_SIZE,          // Page size for MX25UM25645G
   .write_status_bit           = 0,                               // Status register write protection bit
   .write_enable_bit           = 1,                               // Write enable bit position
   .page_program_command       = 0,                               // OSPI_B uses command sets

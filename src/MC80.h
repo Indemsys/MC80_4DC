@@ -289,6 +289,7 @@ typedef struct
 #include "RTC_driver.h"
 #include "Flash_driver.h"
 #include "PWM_timer_driver.h"
+#include "mx25um25645g.h"
 #include "OSPI_config.h"
 #include "LevelX_config.h"
 
