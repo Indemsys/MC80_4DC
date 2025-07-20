@@ -53,113 +53,252 @@
 // OSPI_WRAPCFG - Wrapper Configuration Register
 // =============================================================================
 
-#define OSPI_WRAPCFG_DSSFTCS0_Pos    8                                     // DSS shift CS0 position
-#define OSPI_WRAPCFG_DSSFTCS0_Msk    (0x1FU << OSPI_WRAPCFG_DSSFTCS0_Pos)  // DSS shift CS0 mask
-#define OSPI_WRAPCFG_DSSFTCS1_Pos    24                                    // DSS shift CS1 position
-#define OSPI_WRAPCFG_DSSFTCS1_Msk    (0x1FU << OSPI_WRAPCFG_DSSFTCS1_Pos)  // DSS shift CS1 mask
+// DQS Shift Value for CS0 (bits 12:8).
+// Specifies the amount of delay applied to the DQS (Data Strobe) input for chip select 0.
+// Range: 0 (no delay) to 31 (maximum delay, 31 delay cells). Used to align DQS timing for high-speed operation.
+#define OSPI_WRAPCFG_DSSFTCS0_Pos    8
+#define OSPI_WRAPCFG_DSSFTCS0_Msk    (0x1FU << OSPI_WRAPCFG_DSSFTCS0_Pos)
+
+// DQS Shift Value for CS1 (bits 28:24).
+// Specifies the amount of delay applied to the DQS (Data Strobe) input for chip select 1.
+// Range: 0 (no delay) to 31 (maximum delay, 31 delay cells). Used to align DQS timing for high-speed operation.
+#define OSPI_WRAPCFG_DSSFTCS1_Pos    24
+#define OSPI_WRAPCFG_DSSFTCS1_Msk    (0x1FU << OSPI_WRAPCFG_DSSFTCS1_Pos)
 
 // =============================================================================
 // OSPI_COMCFG - Common Configuration Register
 // =============================================================================
 
-#define OSPI_COMCFG_OEASTEX_Pos      16                               // OE assert extension position
-#define OSPI_COMCFG_OEASTEX_Msk      (1U << OSPI_COMCFG_OEASTEX_Pos)  // OE assert extension mask
-#define OSPI_COMCFG_OENEGEX_Pos      17                               // OE negate extension position
-#define OSPI_COMCFG_OENEGEX_Msk      (1U << OSPI_COMCFG_OENEGEX_Pos)  // OE negate extension mask
+// Output Enable Assert Extension (bit 16).
+// When set to 1, extends the assertion (active phase) of the OE (Output Enable) signal by 1 PCLKA clock cycle.
+// 0 = No extension; 1 = Assertion extended by 1 cycle.
+#define OSPI_COMCFG_OEASTEX_Pos      16
+#define OSPI_COMCFG_OEASTEX_Msk      (1U << OSPI_COMCFG_OEASTEX_Pos)
+
+// Output Enable Negate Extension (bit 17).
+// When set to 1, extends the negation (inactive phase) of the OE (Output Enable) signal by 1 PCLKA clock cycle.
+// 0 = No extension; 1 = Negation extended by 1 cycle.
+#define OSPI_COMCFG_OENEGEX_Pos      17
+#define OSPI_COMCFG_OENEGEX_Msk      (1U << OSPI_COMCFG_OENEGEX_Pos)
 
 // =============================================================================
 // OSPI_BMCFGCHn - Bridge Map Configuration Register chn (n=0,1)
+// The BMCFGCHn register configures the memory-mapped interface behavior for the OSPI bridge channel n (typically, n=0 for CS0, n=1 for CS1).
+// It controls write response behavior, write combination mode, write size,
+// prefetch settings, and the write combination timer for optimal performance and compatibility with different memory devices.
 // =============================================================================
 
-#define OSPI_BMCFGCH_WRMD_Pos        0                                    // Write mode position
-#define OSPI_BMCFGCH_WRMD_Msk        (1U << OSPI_BMCFGCH_WRMD_Pos)        // Write mode mask
-#define OSPI_BMCFGCH_MWRCOMB_Pos     7                                    // Multi-write combine position
-#define OSPI_BMCFGCH_MWRCOMB_Msk     (1U << OSPI_BMCFGCH_MWRCOMB_Pos)     // Multi-write combine mask
-#define OSPI_BMCFGCH_MWRSIZE_Pos     8                                    // Multi-write size position
-#define OSPI_BMCFGCH_MWRSIZE_Msk     (0xFFU << OSPI_BMCFGCH_MWRSIZE_Pos)  // Multi-write size mask
-#define OSPI_BMCFGCH_PREEN_Pos       16                                   // Prefetch enable position
-#define OSPI_BMCFGCH_PREEN_Msk       (1U << OSPI_BMCFGCH_PREEN_Pos)       // Prefetch enable mask
-#define OSPI_BMCFGCH_CMBTIM_Pos      24                                   // Combine timer position
-#define OSPI_BMCFGCH_CMBTIM_Msk      (0xFFU << OSPI_BMCFGCH_CMBTIM_Pos)   // Combine timer mask
+// Write Response Mode (bit 0).
+// 0 = Write response by memory device (waits for memory ready).
+// 1 = Write response by OSPI controller (does not wait for memory).
+#define OSPI_BMCFGCH_WRMD_Pos        0
+#define OSPI_BMCFGCH_WRMD_Msk        (1U << OSPI_BMCFGCH_WRMD_Pos)
+
+// Memory Write Combination Enable (bit 7).
+// 0 = Disable (each write is issued immediately).
+// 1 = Enable (writes are combined into a single burst transaction when possible).
+#define OSPI_BMCFGCH_MWRCOMB_Pos     7
+#define OSPI_BMCFGCH_MWRCOMB_Msk     (1U << OSPI_BMCFGCH_MWRCOMB_Pos)
+
+// Memory Write Size (bits 15:8).
+// Sets the write transaction size in bytes (encoded):
+// 0x00 = 4 bytes, 0x01 = 8 bytes, ..., 0x0F = 64 bytes, 0xFF = 2 bytes.
+#define OSPI_BMCFGCH_MWRSIZE_Pos     8
+#define OSPI_BMCFGCH_MWRSIZE_Msk     (0xFFU << OSPI_BMCFGCH_MWRSIZE_Pos)
+
+// Prefetch Enable (bit 16).
+// 0 = Prefetch disabled.
+// 1 = Prefetch enabled (read-ahead for improved throughput).
+#define OSPI_BMCFGCH_PREEN_Pos       16
+#define OSPI_BMCFGCH_PREEN_Msk       (1U << OSPI_BMCFGCH_PREEN_Pos)
+
+// Write Combination Timer (bits 31:24).
+// Sets the time (in PCLKA clock cycles) to wait for additional write data before issuing a combined write transaction.
+// 0x00 = Timer disabled, 0x01–0xFF = wait up to N cycles.
+#define OSPI_BMCFGCH_CMBTIM_Pos      24
+#define OSPI_BMCFGCH_CMBTIM_Msk      (0xFFU << OSPI_BMCFGCH_CMBTIM_Pos)
 
 // =============================================================================
 // OSPI_CMCFG0CSn - Command Map Configuration Register 0 CSn (n=0,1)
+// The CMCFG0CSn register defines the frame and address format, burst/array modes, and address replacement features for each chip select (CSn).
+// This allows you to match the OSPI controller’s command/transfer framing to your external flash memory device requirements.
 // =============================================================================
 
-#define OSPI_CMCFG0CSN_FFMT_Pos      0                                      // Flash format position
-#define OSPI_CMCFG0CSN_FFMT_Msk      (0x3U << OSPI_CMCFG0CSN_FFMT_Pos)      // Flash format mask
-#define OSPI_CMCFG0CSN_ADDSIZE_Pos   2                                      // Address size position
-#define OSPI_CMCFG0CSN_ADDSIZE_Msk   (0x3U << OSPI_CMCFG0CSN_ADDSIZE_Pos)   // Address size mask
-#define OSPI_CMCFG0CSN_WPBSTMD_Pos   4                                      // Write protect burst mode position
-#define OSPI_CMCFG0CSN_WPBSTMD_Msk   (1U << OSPI_CMCFG0CSN_WPBSTMD_Pos)     // Write protect burst mode mask
-#define OSPI_CMCFG0CSN_ARYAMD_Pos    5                                      // Array mode position
-#define OSPI_CMCFG0CSN_ARYAMD_Msk    (1U << OSPI_CMCFG0CSN_ARYAMD_Pos)      // Array mode mask
-#define OSPI_CMCFG0CSN_ADDRPEN_Pos   16                                     // Address phase enable position
-#define OSPI_CMCFG0CSN_ADDRPEN_Msk   (0xFFU << OSPI_CMCFG0CSN_ADDRPEN_Pos)  // Address phase enable mask
-#define OSPI_CMCFG0CSN_ADDRPCD_Pos   24                                     // Address phase code position
-#define OSPI_CMCFG0CSN_ADDRPCD_Msk   (0xFFU << OSPI_CMCFG0CSN_ADDRPCD_Pos)  // Address phase code mask
+// Frame Format (bits 1:0).
+// 0 = Standard SPI (1S-1S-1S).
+// 1 = Octal DDR (8D-8D-8D) Profile 1.0.
+// 2 = Octal DDR (8D-8D-8D) Profile 2.0 (Modified).
+// 3 = Octal DDR (8D-8D-8D) Extended Mode.
+#define OSPI_CMCFG0CSN_FFMT_Pos      0
+#define OSPI_CMCFG0CSN_FFMT_Msk      (0x3U << OSPI_CMCFG0CSN_FFMT_Pos)
+
+// Address Size (bits 3:2).
+// 0 = 1 byte, 1 = 2 bytes, 2 = 3 bytes, 3 = 4 bytes.
+#define OSPI_CMCFG0CSN_ADDSIZE_Pos   2
+#define OSPI_CMCFG0CSN_ADDSIZE_Msk   (0x3U << OSPI_CMCFG0CSN_ADDSIZE_Pos)
+
+// Wrapping Burst Mode Enable (bit 4).
+// 0 = Disabled; 1 = Enabled (for supporting continuous burst with wrap).
+#define OSPI_CMCFG0CSN_WPBSTMD_Pos   4
+#define OSPI_CMCFG0CSN_WPBSTMD_Msk   (1U << OSPI_CMCFG0CSN_WPBSTMD_Pos)
+
+// Array Address Mode (bit 5).
+// 0 = Linear addressing; 1 = Array address mode enabled.
+#define OSPI_CMCFG0CSN_ARYAMD_Pos    5
+#define OSPI_CMCFG0CSN_ARYAMD_Msk    (1U << OSPI_CMCFG0CSN_ARYAMD_Pos)
+
+// Address Replace Enable (bits 23:16).
+// Each bit enables address replacement for a corresponding byte position in the address field.
+// Bit 16 = enable for address byte 0, Bit 17 = for byte 1, ..., Bit 23 = for byte 7.
+#define OSPI_CMCFG0CSN_ADDRPEN_Pos   16
+#define OSPI_CMCFG0CSN_ADDRPEN_Msk   (0xFFU << OSPI_CMCFG0CSN_ADDRPEN_Pos)
+
+// Address Replace Code (bits 31:24).
+// Value to be used as the replacement byte when address replacement is enabled.
+#define OSPI_CMCFG0CSN_ADDRPCD_Pos   24
+#define OSPI_CMCFG0CSN_ADDRPCD_Msk   (0xFFU << OSPI_CMCFG0CSN_ADDRPCD_Pos)
 
 // =============================================================================
 // OSPI_CMCFG1CSn - Command Map Configuration Register 1 CSn (n=0,1)
+// The CMCFG1CSn register sets the command code and dummy cycles (latency cycles) for memory read operations for each chip select (CSn).
+// This allows the controller to send the correct command sequence and number of wait cycles,
+// matching the requirements of the connected memory device.
 // =============================================================================
 
-#define OSPI_CMCFG1CSN_RDCMD_Pos     0                                      // Read command position
-#define OSPI_CMCFG1CSN_RDCMD_Msk     (0xFFFFU << OSPI_CMCFG1CSN_RDCMD_Pos)  // Read command mask
-#define OSPI_CMCFG1CSN_RDLATE_Pos    16                                     // Read latency position
-#define OSPI_CMCFG1CSN_RDLATE_Msk    (0x1FU << OSPI_CMCFG1CSN_RDLATE_Pos)   // Read latency mask
+// Read Command Code (bits 15:0).
+// Specifies the opcode(s) used to initiate a read operation on the memory device.
+// Typical values: 0x03 (read), 0x0B (fast read), 0xEB, 0xEC, etc.
+#define OSPI_CMCFG1CSN_RDCMD_Pos     0
+#define OSPI_CMCFG1CSN_RDCMD_Msk     (0xFFFFU << OSPI_CMCFG1CSN_RDCMD_Pos)
+
+// Read Latency (bits 20:16).
+// Number of dummy cycles (latency cycles) to insert between command/address phase and data phase.
+// Range: 0–31. Set according to device timing requirements.
+#define OSPI_CMCFG1CSN_RDLATE_Pos    16
+#define OSPI_CMCFG1CSN_RDLATE_Msk    (0x1FU << OSPI_CMCFG1CSN_RDLATE_Pos)
 
 // =============================================================================
 // OSPI_CMCFG2CSn - Command Map Configuration Register 2 CSn (n=0,1)
+// The CMCFG2CSn register configures the command code and dummy cycles (latency cycles) for memory write operations for each chip select (CSn).
+// This allows the OSPI controller to issue the correct command and wait cycles to the connected memory device during writes.
 // =============================================================================
 
-#define OSPI_CMCFG2CSN_WRCMD_Pos     0                                      // Write command position
-#define OSPI_CMCFG2CSN_WRCMD_Msk     (0xFFFFU << OSPI_CMCFG2CSN_WRCMD_Pos)  // Write command mask
-#define OSPI_CMCFG2CSN_WRLATE_Pos    16                                     // Write latency position
-#define OSPI_CMCFG2CSN_WRLATE_Msk    (0x1FU << OSPI_CMCFG2CSN_WRLATE_Pos)   // Write latency mask
+// Write Command Code (bits 15:0).
+// Specifies the opcode(s) used to initiate a write/program operation on the memory device.
+// Typical values: 0x02 (Page Program), 0x38, 0x12, etc.
+#define OSPI_CMCFG2CSN_WRCMD_Pos     0
+#define OSPI_CMCFG2CSN_WRCMD_Msk     (0xFFFFU << OSPI_CMCFG2CSN_WRCMD_Pos)
+
+// Write Latency (bits 20:16).
+// Number of dummy cycles (latency cycles) to insert between command/address phase and data phase for write operations.
+// Range: 0–31. Set according to device timing requirements.
+#define OSPI_CMCFG2CSN_WRLATE_Pos    16
+#define OSPI_CMCFG2CSN_WRLATE_Msk    (0x1FU << OSPI_CMCFG2CSN_WRLATE_Pos)
 
 // =============================================================================
 // OSPI_LIOCFGCSn - Link I/O Configuration Register CSn (n=0,1)
+// The LIOCFGCSn register configures protocol, timing, and I/O settings for each chip select (CSn) line,
+// enabling fine-tuning of the OSPI interface to match the requirements and capabilities of the connected memory device.
 // =============================================================================
 
-#define OSPI_LIOCFGCSN_PRTMD_Pos     0                                       // Protocol mode position
-#define OSPI_LIOCFGCSN_PRTMD_Msk     (0x3FFU << OSPI_LIOCFGCSN_PRTMD_Pos)    // Protocol mode mask
-#define OSPI_LIOCFGCSN_LATEMD_Pos    10                                      // Latency mode position
-#define OSPI_LIOCFGCSN_LATEMD_Msk    (1U << OSPI_LIOCFGCSN_LATEMD_Pos)       // Latency mode mask
-#define OSPI_LIOCFGCSN_WRMSKMD_Pos   11                                      // Write mask mode position
-#define OSPI_LIOCFGCSN_WRMSKMD_Msk   (1U << OSPI_LIOCFGCSN_WRMSKMD_Pos)      // Write mask mode mask
-#define OSPI_LIOCFGCSN_CSMIN_Pos     16                                      // CS minimum period position
-#define OSPI_LIOCFGCSN_CSMIN_Msk     (0xFU << OSPI_LIOCFGCSN_CSMIN_Pos)      // CS minimum period mask
-#define OSPI_LIOCFGCSN_CSASTEX_Pos   20                                      // CS assert extension position
-#define OSPI_LIOCFGCSN_CSASTEX_Pos   20                                      // CS assert extension position
-#define OSPI_LIOCFGCSN_CSASTEX_Msk   (1U << OSPI_LIOCFGCSN_CSASTEX_Pos)      // CS assert extension mask
-#define OSPI_LIOCFGCSN_CSNEGEX_Pos   21                                      // CS negate extension position
-#define OSPI_LIOCFGCSN_CSNEGEX_Msk   (1U << OSPI_LIOCFGCSN_CSNEGEX_Pos)      // CS negate extension mask
-#define OSPI_LIOCFGCSN_SDRDRV_Pos    22                                      // SDR drive position
-#define OSPI_LIOCFGCSN_SDRDRV_Msk    (1U << OSPI_LIOCFGCSN_SDRDRV_Pos)       // SDR drive mask
-#define OSPI_LIOCFGCSN_SDRSMPMD_Pos  23                                      // SDR sample mode position
-#define OSPI_LIOCFGCSN_SDRSMPMD_Msk  (1U << OSPI_LIOCFGCSN_SDRSMPMD_Pos)     // SDR sample mode mask
-#define OSPI_LIOCFGCSN_SDRSMPSFT_Pos 24                                      // SDR sample shift position
-#define OSPI_LIOCFGCSN_SDRSMPSFT_Msk (0xFU << OSPI_LIOCFGCSN_SDRSMPSFT_Pos)  // SDR sample shift mask
-#define OSPI_LIOCFGCSN_DDRSMPEX_Pos  28                                      // DDR sample extension position
-#define OSPI_LIOCFGCSN_DDRSMPEX_Msk  (0xFU << OSPI_LIOCFGCSN_DDRSMPEX_Pos)   // DDR sample extension mask
+// Protocol Mode (bits 9:0).
+// Selects SPI bus width and protocol (e.g. 1S-1S-1S, 8D-8D-8D, etc.).
+// Typical values:
+//   0x000 = 1S-1S-1S (standard SPI)
+//   0x3B2 = 4S-4D-4D
+//   0x3FF = 8D-8D-8D
+#define OSPI_LIOCFGCSN_PRTMD_Pos     0
+#define OSPI_LIOCFGCSN_PRTMD_Msk     (0x3FFU << OSPI_LIOCFGCSN_PRTMD_Pos)
+
+// Latency Mode (bit 10).
+// 0 = Standard mode, 1 = Variable/latency mode (device-specific).
+#define OSPI_LIOCFGCSN_LATEMD_Pos    10
+#define OSPI_LIOCFGCSN_LATEMD_Msk    (1U << OSPI_LIOCFGCSN_LATEMD_Pos)
+
+// Write Mask Mode (bit 11).
+// 0 = Normal write, 1 = Write with mask (for devices supporting masked writes).
+#define OSPI_LIOCFGCSN_WRMSKMD_Pos   11
+#define OSPI_LIOCFGCSN_WRMSKMD_Msk   (1U << OSPI_LIOCFGCSN_WRMSKMD_Pos)
+
+// Minimum CS Inactive Cycles (bits 19:16).
+// Minimum number of PCLKA cycles CS remains inactive between frames (0–15).
+#define OSPI_LIOCFGCSN_CSMIN_Pos     16
+#define OSPI_LIOCFGCSN_CSMIN_Msk     (0xFU << OSPI_LIOCFGCSN_CSMIN_Pos)
+
+// CS Assert Extension (bit 20).
+// 0 = Normal CS assertion; 1 = CS assertion is extended by 1 PCLKA cycle.
+#define OSPI_LIOCFGCSN_CSASTEX_Pos   20
+#define OSPI_LIOCFGCSN_CSASTEX_Msk   (1U << OSPI_LIOCFGCSN_CSASTEX_Pos)
+
+// CS Negate Extension (bit 21).
+// 0 = Normal CS negation; 1 = CS negation is extended by 1 PCLKA cycle.
+#define OSPI_LIOCFGCSN_CSNEGEX_Pos   21
+#define OSPI_LIOCFGCSN_CSNEGEX_Msk   (1U << OSPI_LIOCFGCSN_CSNEGEX_Pos)
+
+// SDR Output Drive (bit 22).
+// 0 = Normal drive; 1 = Stronger drive for SDR signals (device-dependent).
+#define OSPI_LIOCFGCSN_SDRDRV_Pos    22
+#define OSPI_LIOCFGCSN_SDRDRV_Msk    (1U << OSPI_LIOCFGCSN_SDRDRV_Pos)
+
+// SDR Sampling Mode (bit 23).
+// 0 = Standard sampling; 1 = Custom/advanced sampling (device-dependent).
+#define OSPI_LIOCFGCSN_SDRSMPMD_Pos  23
+#define OSPI_LIOCFGCSN_SDRSMPMD_Msk  (1U << OSPI_LIOCFGCSN_SDRSMPMD_Pos)
+
+// SDR Sampling Shift (bits 27:24).
+// Shifts SDR data sampling point (in PCLKA cycles), range 0–15.
+#define OSPI_LIOCFGCSN_SDRSMPSFT_Pos 24
+#define OSPI_LIOCFGCSN_SDRSMPSFT_Msk (0xFU << OSPI_LIOCFGCSN_SDRSMPSFT_Pos)
+
+// DDR Sampling Extension (bits 31:28).
+// Adjusts DDR data sampling point, range 0–15.
+#define OSPI_LIOCFGCSN_DDRSMPEX_Pos  28
+#define OSPI_LIOCFGCSN_DDRSMPEX_Msk  (0xFU << OSPI_LIOCFGCSN_DDRSMPEX_Pos)
 
 // =============================================================================
 // OSPI_BMCTL0 - Bridge Map Control Register 0
+// Controls the access enable settings from each system bus channel (ch0) to the OSPI memory areas (CS0/CS1).
+// This register is used to enable or disable read/write access to each OSPI memory area during memory-mapped operation.
 // =============================================================================
 
-#define OSPI_BMCTL0_CH0CS0ACC_Pos    0                                    // Channel 0 CS0 access position
-#define OSPI_BMCTL0_CH0CS0ACC_Msk    (0x3U << OSPI_BMCTL0_CH0CS0ACC_Pos)  // Channel 0 CS0 access mask
-#define OSPI_BMCTL0_CH0CS1ACC_Pos    2                                    // Channel 0 CS1 access position
-#define OSPI_BMCTL0_CH0CS1ACC_Msk    (0x3U << OSPI_BMCTL0_CH0CS1ACC_Pos)  // Channel 0 CS1 access mask
+// Channel 0 to CS0 access enable (bits 1:0).
+// Controls access from system bus channel 0 to CS0 memory area.
+// 0b00: Read/Write disable (no access)
+// 0b01: Read enable, Write disable
+// 0b10: Read disable, Write enable
+// 0b11: Read/Write enable (full access)
+#define OSPI_BMCTL0_CH0CS0ACC_Pos    0
+#define OSPI_BMCTL0_CH0CS0ACC_Msk    (0x3U << OSPI_BMCTL0_CH0CS0ACC_Pos)
+
+// Channel 0 to CS1 access enable (bits 3:2).
+// Controls access from system bus channel 0 to CS1 memory area.
+// 0b00: Read/Write disable (no access)
+// 0b01: Read enable, Write disable
+// 0b10: Read disable, Write enable
+// 0b11: Read/Write enable (full access)
+#define OSPI_BMCTL0_CH0CS1ACC_Pos    2
+#define OSPI_BMCTL0_CH0CS1ACC_Msk    (0x3U << OSPI_BMCTL0_CH0CS1ACC_Pos)
 
 // =============================================================================
 // OSPI_BMCTL1 - Bridge Map Control Register 1
+// BMCTL1 controls buffer operations for system bus channel 0:
+// Manual push of write data from the combination buffer to the OSPI memory device (used in combination mode).
+// Clearing the prefetch buffer for channel 0 (when prefetch is enabled).
 // =============================================================================
 
-#define OSPI_BMCTL1_MWRPUSHCH0_Pos   8                                   // Multi-write push channel 0 position
-#define OSPI_BMCTL1_MWRPUSHCH0_Msk   (1U << OSPI_BMCTL1_MWRPUSHCH0_Pos)  // Multi-write push channel 0 mask
-#define OSPI_BMCTL1_PBUFCLRCH0_Pos   10                                  // Prefetch buffer clear channel 0 position
-#define OSPI_BMCTL1_PBUFCLRCH0_Msk   (1U << OSPI_BMCTL1_PBUFCLRCH0_Pos)  // Prefetch buffer clear channel 0 mask
+// Memory Write Data Push for channel 0 (bit 8).
+// Writing 1 pushes the pending data in the combination buffer to the memory device in combination mode.
+// 0: No command
+// 1: Push request (self-clearing bit)
+#define OSPI_BMCTL1_MWRPUSHCH0_Pos 8
+#define OSPI_BMCTL1_MWRPUSHCH0_Msk (1U << OSPI_BMCTL1_MWRPUSHCH0_Pos)
+
+// Prefetch Buffer Clear for channel 0 (bit 10).
+// Writing 1 clears the prefetch buffer for channel 0. Should NOT be set during memory access.
+// 0: No command
+// 1: Clear request (self-clearing bit)
+#define OSPI_BMCTL1_PBUFCLRCH0_Pos 10
+#define OSPI_BMCTL1_PBUFCLRCH0_Msk (1U << OSPI_BMCTL1_PBUFCLRCH0_Pos)
 
 // =============================================================================
 // OSPI_CMCTLCHn - Command Map Control Register chn (n=0,1)
