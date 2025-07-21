@@ -16,7 +16,7 @@ rm_levelx_nor_spi_cfg_t g_rm_levelx_nor_OSPI_cfg = {
   .p_lower_lvl  = &RA_NOT_DEFINED,
   .base_address = BSP_FEATURE_OSPI_DEVICE_RA_NOT_DEFINED_START_ADDRESS,
 #else
-  .p_lower_lvl  = &g_OSPI,                                    // Reference to OSPI driver instance
+  .p_lower_lvl  = NULL,                                    // Reference to OSPI driver instance
   .base_address = BSP_FEATURE_OSPI_B_DEVICE_0_START_ADDRESS,  // OSPI memory-mapped base address
 #endif
   .address_offset    = 0,                                // Address offset within flash memory

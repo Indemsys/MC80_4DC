@@ -3,7 +3,8 @@
 -----------------------------------------------------------------------------------------------------*/
 
 #include "App.h"
-#include "RA8M1_OSPI.h"
+#include "MC80_OSPI_drv.h"
+#include "RA8M1_OSPI.h"  // For register definitions only
 
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
@@ -88,18 +89,18 @@
 /*-----------------------------------------------------------------------------------------------------
   Static function prototypes
 -----------------------------------------------------------------------------------------------------*/
-static bool                                _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_instance_ctrl, uint8_t bit_pos);
-static fsp_err_t                           _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_instance_ctrl);
-static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_instance_ctrl);
-static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_instance_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction);
-static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_instance_ctrl);
+static bool                                _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit_pos);
+static fsp_err_t                           _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_ctrl);
+static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
+static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction);
+static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 
 #if MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE
-static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_instance_ctrl);
+static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_ctrl);
 #endif
 
 #if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
-static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_instance_ctrl, bool is_entering);
+static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
 #endif
 
 /*-----------------------------------------------------------------------------------------------------
@@ -122,19 +123,18 @@ static uint32_t g_mc80_ospi_channels_open_flags = 0;
     FSP_ERR_ALREADY_OPEN     - Driver has already been opened with the same p_ctrl
     FSP_ERR_CALIBRATE_FAILED - Failed to perform auto-calibrate
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *const p_cfg)
+fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, spi_flash_cfg_t const *const p_cfg)
 {
-  T_mc80_ospi_instance_ctrl            *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
   fsp_err_t                             ret             = FSP_SUCCESS;
   const T_mc80_ospi_extended_cfg *const p_cfg_extend    = (T_mc80_ospi_extended_cfg *)(p_cfg->p_extend);
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (NULL == p_instance_ctrl || NULL == p_cfg || NULL == p_cfg->p_extend)
+    if (NULL == p_ctrl || NULL == p_cfg || NULL == p_cfg->p_extend)
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN == p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN == p_ctrl->open)
     {
       return FSP_ERR_ALREADY_OPEN;
     }
@@ -142,24 +142,24 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (!(BSP_PERIPHERAL_OSPI_B_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit)) ||
+    if (!(MC80_OSPI_PERIPHERAL_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit)) ||
         (0 != (g_mc80_ospi_channels_open_flags & MC80_OSPI_PRV_CH_MASK(p_cfg_extend))))
     {
-      return (!(BSP_PERIPHERAL_OSPI_B_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit))) ? FSP_ERR_ASSERTION : FSP_ERR_ALREADY_OPEN;
+      return (!(MC80_OSPI_PERIPHERAL_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit))) ? FSP_ERR_ASSERTION : FSP_ERR_ALREADY_OPEN;
     }
   }
 
-  R_XSPI0_Type *p_reg = (R_XSPI0_Type *)((uint32_t)R_XSPI0 + p_cfg_extend->ospi_unit * ((uint32_t)R_XSPI1 - (uint32_t)R_XSPI0));
+  R_XSPI0_Type *p_reg = (R_XSPI0_Type *)(MC80_OSPI0_BASE_ADDRESS + p_cfg_extend->ospi_unit * MC80_OSPI_UNIT_ADDRESS_OFFSET);
 
   // Enable clock to the xSPI block
   R_BSP_MODULE_START(FSP_IP_OSPI, p_cfg_extend->ospi_unit);
 
   // Initialize control block
-  p_instance_ctrl->p_cfg                = p_cfg;
-  p_instance_ctrl->p_reg                = p_reg;
-  p_instance_ctrl->spi_protocol         = p_cfg->spi_protocol;
-  p_instance_ctrl->channel              = p_cfg_extend->channel;
-  p_instance_ctrl->ospi_unit            = p_cfg_extend->ospi_unit;
+  p_ctrl->p_cfg                = p_cfg;
+  p_ctrl->p_reg                = p_reg;
+  p_ctrl->spi_protocol         = p_cfg->spi_protocol;
+  p_ctrl->channel              = p_cfg_extend->channel;
+  p_ctrl->ospi_unit            = p_cfg_extend->ospi_unit;
 
   // Initialize transfer instance
   transfer_instance_t const *p_transfer = p_cfg_extend->p_lower_lvl_transfer;
@@ -172,7 +172,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   p_transfer->p_api->open(p_transfer->p_ctrl, p_transfer->p_cfg);
 
   // Disable memory-mapping for this slave. It will be enabled later on after initialization
-  if (MC80_OSPI_DEVICE_NUMBER_0 == p_instance_ctrl->channel)
+  if (MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel)
   {
     p_reg->BMCTL0 &= ~(OSPI_BMCTL0_CH0CS0ACC_Msk);
   }
@@ -187,7 +187,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
 
   // Set xSPI drive/sampling timing
-  if (MC80_OSPI_DEVICE_NUMBER_0 == p_instance_ctrl->channel)
+  if (MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel)
   {
     p_reg->WRAPCFG = ((uint32_t)p_cfg_extend->data_latch_delay_clocks << OSPI_WRAPCFG_DSSFTCS0_Pos) & OSPI_WRAPCFG_DSSFTCS0_Msk;
   }
@@ -215,7 +215,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
 
   // Set xSPI memory-mapping operation
-  ret                                    = _Mc80_ospi_protocol_specific_settings(p_instance_ctrl);
+  ret                                    = _Mc80_ospi_protocol_specific_settings(p_ctrl);
 
   // Return response after issuing write transaction to xSPI bus, Enable prefetch function and combination if desired
   const uint32_t bmcfgch                 = (0 << OSPI_BMCFGCH_WRMD_Pos) |
@@ -229,7 +229,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   p_reg->BMCFGCH[1] = bmcfgch;
 
   // Re-activate memory-mapped mode in Read/Write
-  if (0 == p_instance_ctrl->channel)
+  if (0 == p_ctrl->channel)
   {
     p_reg->BMCTL0 |= OSPI_BMCTL0_CH0CS0ACC_Msk;
   }
@@ -240,7 +240,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
 
   if (FSP_SUCCESS == ret)
   {
-    p_instance_ctrl->open = MC80_OSPI_PRV_OPEN;
+    p_ctrl->open = MC80_OSPI_PRV_OPEN;
     g_mc80_ospi_channels_open_flags |= MC80_OSPI_PRV_CH_MASK(p_cfg_extend);
   }
   else if (0 == (g_mc80_ospi_channels_open_flags & MC80_OSPI_PRV_UNIT_MASK(p_cfg_extend)))
@@ -264,7 +264,7 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   Return:
     FSP_ERR_UNSUPPORTED - API not supported by OSPI
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_direct_write(spi_flash_ctrl_t    *p_ctrl,
+fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl *p_ctrl,
                                  uint8_t const *const p_src,
                                  uint32_t const       bytes,
                                  bool const           read_after_write)
@@ -283,7 +283,7 @@ fsp_err_t Mc80_ospi_direct_write(spi_flash_ctrl_t    *p_ctrl,
   Return:
     FSP_ERR_UNSUPPORTED - API not supported by OSPI
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_direct_read(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_dest, uint32_t const bytes)
+fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_dest, uint32_t const bytes)
 {
   return FSP_ERR_UNSUPPORTED;
 }
@@ -301,23 +301,22 @@ fsp_err_t Mc80_ospi_direct_read(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_dest,
     FSP_ERR_ASSERTION - A required pointer is NULL
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_direct_transfer(spi_flash_ctrl_t *p_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction)
+fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (NULL == p_instance_ctrl || NULL == p_transfer || 0 == p_transfer->command_length)
+    if (NULL == p_ctrl || NULL == p_transfer || 0 == p_transfer->command_length)
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
   }
 
-  _Mc80_ospi_direct_transfer(p_instance_ctrl, p_transfer, direction);
+  _Mc80_ospi_direct_transfer(p_ctrl, p_transfer, direction);
 
   return FSP_SUCCESS;
 }
@@ -334,26 +333,25 @@ fsp_err_t Mc80_ospi_direct_transfer(spi_flash_ctrl_t *p_ctrl, spi_flash_direct_t
     FSP_ERR_NOT_OPEN   - Driver is not opened
     FSP_ERR_UNSUPPORTED- XiP support is not enabled
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_xip_enter(spi_flash_ctrl_t *p_ctrl)
+fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
   if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
   {
-    T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
     if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
     {
-      if (NULL == p_instance_ctrl || NULL == p_instance_ctrl->p_cfg)
+      if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
       {
         return FSP_ERR_ASSERTION;
       }
-      if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+      if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
       {
         return FSP_ERR_NOT_OPEN;
       }
     }
 
     // Enter XIP mode
-    _Mc80_ospi_xip(p_instance_ctrl, true);
+    _Mc80_ospi_xip(p_ctrl, true);
 
     return FSP_SUCCESS;
   }
@@ -375,26 +373,25 @@ fsp_err_t Mc80_ospi_xip_enter(spi_flash_ctrl_t *p_ctrl)
     FSP_ERR_NOT_OPEN   - Driver is not opened
     FSP_ERR_UNSUPPORTED- XiP support is not enabled
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_xip_exit(spi_flash_ctrl_t *p_ctrl)
+fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
   if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
   {
-    T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
     if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
     {
-      if (NULL == p_instance_ctrl || NULL == p_instance_ctrl->p_cfg)
+      if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
       {
         return FSP_ERR_ASSERTION;
       }
-      if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+      if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
       {
         return FSP_ERR_NOT_OPEN;
       }
     }
 
     // Exit XIP mode
-    _Mc80_ospi_xip(p_instance_ctrl, false);
+    _Mc80_ospi_xip(p_ctrl, false);
 
     return FSP_SUCCESS;
   }
@@ -415,16 +412,15 @@ fsp_err_t Mc80_ospi_xip_exit(spi_flash_ctrl_t *p_ctrl)
 
   Return:
     FSP_SUCCESS            - The flash was programmed successfully
-    FSP_ERR_ASSERTION      - p_instance_ctrl, p_dest or p_src is NULL, or byte_count crosses a page boundary
+    FSP_ERR_ASSERTION      - p_ctrl, p_dest or p_src is NULL, or byte_count crosses a page boundary
     FSP_ERR_NOT_OPEN       - Driver is not opened
     FSP_ERR_INVALID_SIZE   - Insufficient space remaining in page or write length is not a multiple of CPU access size when not using the DMAC
     FSP_ERR_DEVICE_BUSY    - Another Write/Erase transaction is in progress
     FSP_ERR_WRITE_FAILED   - Write operation failed
     FSP_ERR_INVALID_ADDRESS- Destination or source is not aligned to CPU access alignment when not using the DMAC
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
+fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
   fsp_err_t                  err             = FSP_SUCCESS;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
@@ -433,13 +429,13 @@ fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t *p_ctrl, uint8_t const *const p_src, 
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
 
     // Check that space remaining in page is sufficient for requested write size
-    uint32_t page_size   = p_instance_ctrl->p_cfg->page_size_bytes;
+    uint32_t page_size   = p_ctrl->p_cfg->page_size_bytes;
     uint32_t page_offset = (uint32_t)p_dest & (page_size - 1);
     if ((page_size - page_offset) < byte_count)
     {
@@ -463,15 +459,15 @@ fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t *p_ctrl, uint8_t const *const p_src, 
 #endif
   }
 
-  R_XSPI0_Type *const p_reg = p_instance_ctrl->p_reg;
+  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
 
-  if (true == _Mc80_ospi_status_sub(p_instance_ctrl, p_instance_ctrl->p_cfg->write_status_bit))
+  if (true == _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit))
   {
     return FSP_ERR_DEVICE_BUSY;
   }
 
   // Setup and start DMAC transfer
-  T_mc80_ospi_extended_cfg  *p_cfg_extend                  = MC80_OSPI_PRV_EXTENDED_CFG(p_instance_ctrl);
+  T_mc80_ospi_extended_cfg  *p_cfg_extend                  = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
   transfer_instance_t const *p_transfer                    = p_cfg_extend->p_lower_lvl_transfer;
 
   // Enable Octa-SPI DMA Bufferable Write
@@ -491,7 +487,7 @@ fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t *p_ctrl, uint8_t const *const p_src, 
     return err;
   }
 
-  _Mc80_ospi_write_enable(p_instance_ctrl);
+  _Mc80_ospi_write_enable(p_ctrl);
 
   // Start DMA
   err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
@@ -543,14 +539,13 @@ fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t *p_ctrl, uint8_t const *const p_src, 
 
   Return:
     FSP_SUCCESS         - The command to erase the flash was executed successfully
-    FSP_ERR_ASSERTION   - p_instance_ctrl or p_device_address is NULL, byte_count doesn't match an erase size defined in spi_flash_cfg_t, or byte_count is set to 0
+    FSP_ERR_ASSERTION   - p_ctrl or p_device_address is NULL, byte_count doesn't match an erase size defined in spi_flash_cfg_t, or byte_count is set to 0
     FSP_ERR_NOT_OPEN    - Driver is not opened
     FSP_ERR_DEVICE_BUSY - The device is busy
     FSP_ERR_WRITE_FAILED- Write operation failed
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_device_address, uint32_t byte_count)
+fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_device_address, uint32_t byte_count)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -558,21 +553,21 @@ fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_device_addr
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
   }
 
-  spi_flash_cfg_t const *p_cfg                  = p_instance_ctrl->p_cfg;
+  spi_flash_cfg_t const *p_cfg                  = p_ctrl->p_cfg;
   uint16_t               erase_command          = 0;
-  const uint32_t         chip_address_base      = p_instance_ctrl->channel ? BSP_FEATURE_OSPI_B_DEVICE_1_START_ADDRESS : BSP_FEATURE_OSPI_B_DEVICE_0_START_ADDRESS;
+  const uint32_t         chip_address_base      = p_ctrl->channel ? MC80_OSPI_DEVICE_1_START_ADDRESS : MC80_OSPI_DEVICE_0_START_ADDRESS;
   uint32_t               chip_address           = (uint32_t)p_device_address - chip_address_base;
   bool                   send_address           = true;
 
-  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_instance_ctrl->p_cmd_set;
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
-  if (true == _Mc80_ospi_status_sub(p_instance_ctrl, p_cfg->write_status_bit))
+  if (true == _Mc80_ospi_status_sub(p_ctrl, p_cfg->write_status_bit))
   {
     return FSP_ERR_DEVICE_BUSY;
   }
@@ -602,7 +597,7 @@ fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_device_addr
     return FSP_ERR_ASSERTION;
   }
 
-  fsp_err_t err = _Mc80_ospi_write_enable(p_instance_ctrl);
+  fsp_err_t err = _Mc80_ospi_write_enable(p_ctrl);
   if (FSP_SUCCESS != err)
   {
     return err;
@@ -616,12 +611,12 @@ fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_device_addr
     .data_length    = 0,
   };
 
-  _Mc80_ospi_direct_transfer(p_instance_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
 
   // If prefetch is enabled, make sure the banks aren't being used and flush the prefetch caches after an erase
   if (MC80_OSPI_CFG_PREFETCH_FUNCTION)
   {
-    R_XSPI0_Type *const p_reg = p_instance_ctrl->p_reg;
+    R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
     while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
     {
       __NOP(); // Breakpoint for memory access wait
@@ -641,12 +636,11 @@ fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t *p_ctrl, uint8_t *const p_device_addr
 
   Return:
     FSP_SUCCESS       - The write status is in p_status
-    FSP_ERR_ASSERTION - p_instance_ctrl or p_status is NULL
+    FSP_ERR_ASSERTION - p_ctrl or p_status is NULL
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_status_get(spi_flash_ctrl_t *p_ctrl, spi_flash_status_t *const p_status)
+fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_status_t *const p_status)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -654,29 +648,29 @@ fsp_err_t Mc80_ospi_status_get(spi_flash_ctrl_t *p_ctrl, spi_flash_status_t *con
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
   }
 
   // Read device status
-  p_status->write_in_progress = _Mc80_ospi_status_sub(p_instance_ctrl, p_instance_ctrl->p_cfg->write_status_bit);
+  p_status->write_in_progress = _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit);
 
   return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Selects the bank to access. Use ospi_b_bank_select_t as the bank value.
+  Selects the bank to access. Bank value should be 0 or 1.
 
   Parameters:
     p_ctrl - Pointer to the control structure
-    bank   - Bank value
+    bank   - Bank value (0 or 1)
 
   Return:
     FSP_ERR_UNSUPPORTED - This function is unsupported
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_bank_set(spi_flash_ctrl_t *p_ctrl, uint32_t bank)
+fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t bank)
 {
   return FSP_ERR_UNSUPPORTED;
 }
@@ -694,9 +688,8 @@ fsp_err_t Mc80_ospi_bank_set(spi_flash_ctrl_t *p_ctrl, uint32_t bank)
     FSP_ERR_NOT_OPEN         - Driver is not opened
     FSP_ERR_CALIBRATE_FAILED - Failed to perform auto-calibrate
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_spi_protocol_set(spi_flash_ctrl_t *p_ctrl, spi_flash_protocol_t spi_protocol)
+fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_protocol_t spi_protocol)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -704,23 +697,23 @@ fsp_err_t Mc80_ospi_spi_protocol_set(spi_flash_ctrl_t *p_ctrl, spi_flash_protoco
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
   }
 
   // Save the old protocol in case of an undefined command set
-  spi_flash_protocol_t old_protocol = p_instance_ctrl->spi_protocol;
-  p_instance_ctrl->spi_protocol     = spi_protocol;
+  spi_flash_protocol_t old_protocol = p_ctrl->spi_protocol;
+  p_ctrl->spi_protocol     = spi_protocol;
 
   // Update the SPI protocol and its associated registers
-  fsp_err_t err                     = _Mc80_ospi_protocol_specific_settings(p_instance_ctrl);
+  fsp_err_t err                     = _Mc80_ospi_protocol_specific_settings(p_ctrl);
 
   if (FSP_ERR_INVALID_MODE == err)
   {
     // Restore the original spi protocol. Nothing else has been changed in this case
-    p_instance_ctrl->spi_protocol = old_protocol;
+    p_ctrl->spi_protocol = old_protocol;
   }
 
   return err;
@@ -734,33 +727,32 @@ fsp_err_t Mc80_ospi_spi_protocol_set(spi_flash_ctrl_t *p_ctrl, spi_flash_protoco
 
   Return:
     FSP_SUCCESS       - Configuration was successful
-    FSP_ERR_ASSERTION - p_instance_ctrl is NULL
+    FSP_ERR_ASSERTION - p_ctrl is NULL
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_close(spi_flash_ctrl_t *p_ctrl)
+fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  T_mc80_ospi_instance_ctrl *p_instance_ctrl = (T_mc80_ospi_instance_ctrl *)p_ctrl;
   fsp_err_t                  err             = FSP_SUCCESS;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (NULL == p_ctrl || NULL == p_instance_ctrl->p_cfg || NULL == p_instance_ctrl->p_cfg->p_extend)
+    if (NULL == p_ctrl || NULL == p_ctrl->p_cfg || NULL == p_ctrl->p_cfg->p_extend)
     {
       return FSP_ERR_ASSERTION;
     }
-    if (MC80_OSPI_PRV_OPEN != p_instance_ctrl->open)
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
     {
       return FSP_ERR_NOT_OPEN;
     }
   }
 
-  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_instance_ctrl);
+  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
 
   // Close transfer instance
   transfer_instance_t const *p_transfer  = p_cfg_extend->p_lower_lvl_transfer;
   p_transfer->p_api->close(p_transfer->p_ctrl);
 
-  p_instance_ctrl->open = 0U;
+  p_ctrl->open = 0U;
   g_mc80_ospi_channels_open_flags &= ~MC80_OSPI_PRV_CH_MASK(p_cfg_extend);
 
   // Disable clock to the OSPI block if all channels are closed
@@ -776,31 +768,31 @@ fsp_err_t Mc80_ospi_close(spi_flash_ctrl_t *p_ctrl)
   Perform initialization based on SPI/OPI protocol
 
   Parameters:
-    p_instance_ctrl - Pointer to OSPI specific control structure
+    p_ctrl - Pointer to OSPI specific control structure
 
   Return:
     FSP_SUCCESS              - Protocol based settings completed successfully
     FSP_ERR_CALIBRATE_FAILED - Auto-Calibration failed
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_instance_ctrl)
+static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  R_XSPI0_Type *const p_reg                     = p_instance_ctrl->p_reg;
+  R_XSPI0_Type *const p_reg                     = p_ctrl->p_reg;
   fsp_err_t           ret                       = FSP_SUCCESS;
 
   // Get the command set for the configured protocol and save it to the control struct
-  T_mc80_ospi_xspi_command_set const *p_cmd_set = _Mc80_ospi_command_set_get(p_instance_ctrl);
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = _Mc80_ospi_command_set_get(p_ctrl);
   if (NULL == p_cmd_set)
   {
     return FSP_ERR_INVALID_MODE;
   }
 
-  p_instance_ctrl->p_cmd_set = p_cmd_set;
+  p_ctrl->p_cmd_set = p_cmd_set;
 
   // Update the SPI protocol and latency mode
-  uint32_t liocfg            = p_reg->LIOCFGCS[p_instance_ctrl->channel] & ~(OSPI_LIOCFGCSN_LATEMD_Msk | OSPI_LIOCFGCSN_PRTMD_Msk);
-  liocfg |= (((uint32_t)p_instance_ctrl->spi_protocol << OSPI_LIOCFGCSN_PRTMD_Pos) & OSPI_LIOCFGCSN_PRTMD_Msk);
+  uint32_t liocfg            = p_reg->LIOCFGCS[p_ctrl->channel] & ~(OSPI_LIOCFGCSN_LATEMD_Msk | OSPI_LIOCFGCSN_PRTMD_Msk);
+  liocfg |= (((uint32_t)p_ctrl->spi_protocol << OSPI_LIOCFGCSN_PRTMD_Pos) & OSPI_LIOCFGCSN_PRTMD_Msk);
   liocfg |= (((uint32_t)p_cmd_set->latency_mode << OSPI_LIOCFGCSN_LATEMD_Pos) & OSPI_LIOCFGCSN_LATEMD_Msk);
-  p_reg->LIOCFGCS[p_instance_ctrl->channel] = liocfg;
+  p_reg->LIOCFGCS[p_ctrl->channel] = liocfg;
 
   // Specifies the read/write commands and Read dummy clocks for Device
   uint32_t cmcfg0                           = ((uint32_t)(p_cmd_set->address_msb_mask << OSPI_CMCFG0CSN_ADDRPEN_Pos)) |
@@ -817,7 +809,7 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
 
   // Apply the frame format setting and update the register
   cmcfg0 |= (uint32_t)(p_cmd_set->frame_format << OSPI_CMCFG0CSN_FFMT_Pos);
-  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG0 = cmcfg0;
+  p_reg->CMCFGCS[p_ctrl->channel].CMCFG0 = cmcfg0;
 
   // Cache the appropriate command values for later use
   uint16_t read_command                           = p_cmd_set->read_command;
@@ -833,11 +825,11 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   const uint8_t read_dummy_cycles                 = p_cmd_set->read_dummy_cycles;
   const uint8_t write_dummy_cycles                = p_cmd_set->program_dummy_cycles;
 
-  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG1 = (uint32_t)(((uint32_t)(read_command) << OSPI_CMCFG1CSN_RDCMD_Pos) |
+  p_reg->CMCFGCS[p_ctrl->channel].CMCFG1 = (uint32_t)(((uint32_t)(read_command) << OSPI_CMCFG1CSN_RDCMD_Pos) |
                                                                ((uint32_t)(read_dummy_cycles << OSPI_CMCFG1CSN_RDLATE_Pos) &
                                                                 OSPI_CMCFG1CSN_RDLATE_Msk));
 
-  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG2 = (uint32_t)(((uint32_t)(write_command) << OSPI_CMCFG2CSN_WRCMD_Pos) |
+  p_reg->CMCFGCS[p_ctrl->channel].CMCFG2 = (uint32_t)(((uint32_t)(write_command) << OSPI_CMCFG2CSN_WRCMD_Pos) |
                                                                ((uint32_t)(write_dummy_cycles << OSPI_CMCFG2CSN_WRLATE_Pos) &
                                                                 OSPI_CMCFG2CSN_WRLATE_Msk));
 
@@ -848,15 +840,15 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   Gets device status.
 
   Parameters:
-    p_instance_ctrl - Pointer to a driver handle
+    p_ctrl - Pointer to a driver handle
     bit_pos         - Write-in-progress bit position
 
   Return:
     True if busy, false if not
 -----------------------------------------------------------------------------------------------------*/
-static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_instance_ctrl, uint8_t bit_pos)
+static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit_pos)
 {
-  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_instance_ctrl->p_cmd_set;
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
   // Skip status check if no command was specified
   if (0 == p_cmd_set->status_command)
@@ -875,12 +867,12 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_instance_ctrl, ui
 
   // 8D-8D-8D mode requires an address for any kind of read. If the address wasn't set by the configuration
   // set it to the general address length
-  if ((direct_command.address_length != 0) && (SPI_FLASH_PROTOCOL_8D_8D_8D == p_instance_ctrl->spi_protocol))
+  if ((direct_command.address_length != 0) && (SPI_FLASH_PROTOCOL_8D_8D_8D == p_ctrl->spi_protocol))
   {
     direct_command.address_length = MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->address_bytes);
   }
 
-  _Mc80_ospi_direct_transfer(p_instance_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_READ);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_READ);
 
   return (direct_command.data >> bit_pos) & 1U;
 }
@@ -889,15 +881,15 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_instance_ctrl, ui
   Send Write enable command to the OctaFlash
 
   Parameters:
-    p_instance_ctrl - Pointer to OSPI specific control structure
+    p_ctrl - Pointer to OSPI specific control structure
 
   Return:
     FSP_SUCCESS         - Write enable operation completed
     FSP_ERR_NOT_ENABLED - Write enable failed
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_instance_ctrl)
+static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  T_mc80_ospi_xspi_command_set const *const p_cmd_set = p_instance_ctrl->p_cmd_set;
+  T_mc80_ospi_xspi_command_set const *const p_cmd_set = p_ctrl->p_cmd_set;
 
   // If the command is 0x00, then skip sending the write enable
   if (0 == p_cmd_set->write_enable_command)
@@ -914,7 +906,7 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_instance_c
     .dummy_cycles   = 0,
   };
 
-  _Mc80_ospi_direct_transfer(p_instance_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
 
   // In case write enable is not checked, assume write is enabled
   bool write_enabled = true;
@@ -922,7 +914,7 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_instance_c
   // Verify write is enabled
   for (uint32_t i = 0U; i < MC80_OSPI_MAX_WRITE_ENABLE_LOOPS; i++)
   {
-    write_enabled = _Mc80_ospi_status_sub(p_instance_ctrl, p_instance_ctrl->p_cfg->write_enable_bit);
+    write_enabled = _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_enable_bit);
     if (write_enabled)
     {
       break;
@@ -941,19 +933,19 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_instance_c
   Direct transfer implementation
 
   Parameters:
-    p_instance_ctrl - Pointer to OSPI specific control structure
+    p_ctrl - Pointer to OSPI specific control structure
     p_transfer      - Pointer to transfer structure
     direction       - Transfer direction
 
   Return:
     void
 -----------------------------------------------------------------------------------------------------*/
-static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_instance_ctrl,
+static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl,
                                        spi_flash_direct_transfer_t *const p_transfer,
                                        spi_flash_direct_transfer_dir_t    direction)
 {
-  R_XSPI0_Type *const             p_reg   = p_instance_ctrl->p_reg;
-  const T_mc80_ospi_device_number channel = p_instance_ctrl->channel;
+  R_XSPI0_Type *const             p_reg   = p_ctrl->p_reg;
+  const T_mc80_ospi_device_number channel = p_ctrl->channel;
 
   uint32_t cdtbuf0 =
   (((uint32_t)p_transfer->command_length << OSPI_CDTBUFn_CMDSIZE_Pos) & OSPI_CDTBUFn_CMDSIZE_Msk) |
@@ -1009,14 +1001,14 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_inst
   Get command set for current protocol
 
   Parameters:
-    p_instance_ctrl - Pointer to OSPI specific control structure
+    p_ctrl - Pointer to OSPI specific control structure
 
   Return:
     Pointer to command set structure, or NULL if not found
 -----------------------------------------------------------------------------------------------------*/
-static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_instance_ctrl)
+static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_instance_ctrl);
+  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
 
   if (NULL == p_cfg_extend->p_xspi_command_set)
   {
@@ -1027,7 +1019,7 @@ static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_osp
   for (uint32_t i = 0; i < p_cfg_extend->p_xspi_command_set->length; i++)
   {
     p_cmd_set = &((T_mc80_ospi_xspi_command_set *)p_cfg_extend->p_xspi_command_set->p_table)[i];
-    if (p_cmd_set->protocol == p_instance_ctrl->spi_protocol)
+    if (p_cmd_set->protocol == p_ctrl->spi_protocol)
     {
       return p_cmd_set;
     }
@@ -1042,22 +1034,22 @@ static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_osp
   Automatic calibration sequence for OSPI
 
   Parameters:
-    p_instance_ctrl - Pointer to OSPI specific control structure
+    p_ctrl - Pointer to OSPI specific control structure
 
   Return:
     FSP_SUCCESS              - Auto-calibration completed successfully
     FSP_ERR_DEVICE_BUSY      - Auto-calibration already in progress
     FSP_ERR_CALIBRATE_FAILED - Auto-calibration failed
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_instance_ctrl)
+static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  R_XSPI0_Type *const       p_reg               = p_instance_ctrl->p_reg;
+  R_XSPI0_Type *const       p_reg               = p_ctrl->p_reg;
   fsp_err_t                 ret                 = FSP_SUCCESS;
-  T_mc80_ospi_extended_cfg *p_cfg_extend        = MC80_OSPI_PRV_EXTENDED_CFG(p_instance_ctrl);
+  T_mc80_ospi_extended_cfg *p_cfg_extend        = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
 
-  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_instance_ctrl->p_cmd_set;
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
-  T_mc80_ospi_device_number channel             = p_instance_ctrl->channel;
+  T_mc80_ospi_device_number channel             = p_ctrl->channel;
 
   // Check that calibration is not in progress
   if (0 != p_reg->CCCTLCS[channel].CCCTL0_b.CAEN)
@@ -1123,17 +1115,17 @@ static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl 
   Configures the device to enter or exit XiP mode
 
   Parameters:
-    p_instance_ctrl - Pointer to the instance ctrl struct
+    p_ctrl - Pointer to the instance ctrl struct
     is_entering     - true if entering XiP mode, false if exiting
 
   Return:
     void
 -----------------------------------------------------------------------------------------------------*/
-static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_instance_ctrl, bool is_entering)
+static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
 {
-  R_XSPI0_Type *const    p_reg                = p_instance_ctrl->p_reg;
-  const spi_flash_cfg_t *p_cfg                = p_instance_ctrl->p_cfg;
-  volatile uint8_t      *p_dummy_read_address = (volatile uint8_t *)((MC80_OSPI_DEVICE_NUMBER_0 == p_instance_ctrl->channel) ? BSP_FEATURE_OSPI_B_DEVICE_0_START_ADDRESS : BSP_FEATURE_OSPI_B_DEVICE_1_START_ADDRESS);
+  R_XSPI0_Type *const    p_reg                = p_ctrl->p_reg;
+  const spi_flash_cfg_t *p_cfg                = p_ctrl->p_cfg;
+  volatile uint8_t      *p_dummy_read_address = (volatile uint8_t *)((MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel) ? MC80_OSPI_DEVICE_0_START_ADDRESS : MC80_OSPI_DEVICE_1_START_ADDRESS);
   volatile uint8_t       dummy_read           = 0;
 
   // Clear the pre-fetch buffer for this bank so the next read is guaranteed to use the XiP code

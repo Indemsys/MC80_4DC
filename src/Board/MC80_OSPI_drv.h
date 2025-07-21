@@ -20,6 +20,16 @@
 // Maximum number of status polling checks after enabling memory writes
 #define MC80_OSPI_MAX_WRITE_ENABLE_POLLING_LOOPS     (5)
 
+// Hardware-specific constants (independent from FSP BSP)
+#define MC80_OSPI_PERIPHERAL_CHANNEL_MASK            (0x03U)  // OSPI units 0 and 1 available
+#define MC80_OSPI_DEVICE_0_START_ADDRESS             (0x60000000UL)  // Memory-mapped address for device 0
+#define MC80_OSPI_DEVICE_1_START_ADDRESS             (0x68000000UL)  // Memory-mapped address for device 1
+
+// OSPI hardware base addresses
+#define MC80_OSPI0_BASE_ADDRESS                      (0x40268000UL)  // OSPI0 base address
+#define MC80_OSPI1_BASE_ADDRESS                      (0x40269000UL)  // OSPI1 base address
+#define MC80_OSPI_UNIT_ADDRESS_OFFSET                (MC80_OSPI1_BASE_ADDRESS - MC80_OSPI0_BASE_ADDRESS)
+
 /*-----------------------------------------------------------------------------------------------------
   OSPI Flash chip select
 -----------------------------------------------------------------------------------------------------*/
@@ -297,19 +307,48 @@ typedef struct st_mc80_ospi_instance_ctrl
 } T_mc80_ospi_instance_ctrl;
 
 /*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI API structure - independent from FSP SPI Flash API
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_api
+{
+  fsp_err_t (* open)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_cfg_t const * const p_cfg);
+  fsp_err_t (* close)(T_mc80_ospi_instance_ctrl * const p_ctrl);
+  fsp_err_t (* write)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint8_t * const p_dest, uint32_t byte_count);
+  fsp_err_t (* erase)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_device_address, uint32_t byte_count);
+  fsp_err_t (* statusGet)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_status_t * const p_status);
+  fsp_err_t (* spiProtocolSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_protocol_t spi_protocol);
+  fsp_err_t (* xipEnter)(T_mc80_ospi_instance_ctrl * const p_ctrl);
+  fsp_err_t (* xipExit)(T_mc80_ospi_instance_ctrl * const p_ctrl);
+  fsp_err_t (* directWrite)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint32_t const bytes, bool const read_after_write);
+  fsp_err_t (* directRead)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_dest, uint32_t const bytes);
+  fsp_err_t (* directTransfer)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_direct_transfer_t * const p_transfer, spi_flash_direct_transfer_dir_t direction);
+  fsp_err_t (* bankSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint32_t bank);
+} T_mc80_ospi_api;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Instance structure
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_instance
+{
+  T_mc80_ospi_instance_ctrl * p_ctrl;  // Pointer to the control structure
+  spi_flash_cfg_t const *     p_cfg;   // Pointer to the configuration structure
+  T_mc80_ospi_api const *     p_api;   // Pointer to the API function structure
+} T_mc80_ospi_instance;
+
+/*-----------------------------------------------------------------------------------------------------
   API function declarations
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t* const p_ctrl, spi_flash_cfg_t const* const p_cfg);
-fsp_err_t Mc80_ospi_close(spi_flash_ctrl_t* const p_ctrl);
-fsp_err_t Mc80_ospi_direct_write(spi_flash_ctrl_t* const p_ctrl, uint8_t const* const p_src, uint32_t const bytes, bool const read_after_write);
-fsp_err_t Mc80_ospi_direct_read(spi_flash_ctrl_t* const p_ctrl, uint8_t* const p_dest, uint32_t const bytes);
-fsp_err_t Mc80_ospi_direct_transfer(spi_flash_ctrl_t* const p_ctrl, spi_flash_direct_transfer_t* const p_transfer, spi_flash_direct_transfer_dir_t direction);
-fsp_err_t Mc80_ospi_spi_protocol_set(spi_flash_ctrl_t* const p_ctrl, spi_flash_protocol_t spi_protocol);
-fsp_err_t Mc80_ospi_xip_enter(spi_flash_ctrl_t* const p_ctrl);
-fsp_err_t Mc80_ospi_xip_exit(spi_flash_ctrl_t* const p_ctrl);
-fsp_err_t Mc80_ospi_write(spi_flash_ctrl_t* const p_ctrl, uint8_t const* const p_src, uint8_t* const p_dest, uint32_t byte_count);
-fsp_err_t Mc80_ospi_erase(spi_flash_ctrl_t* const p_ctrl, uint8_t* const p_device_address, uint32_t byte_count);
-fsp_err_t Mc80_ospi_status_get(spi_flash_ctrl_t* const p_ctrl, spi_flash_status_t* const p_status);
-fsp_err_t Mc80_ospi_bank_set(spi_flash_ctrl_t* const p_ctrl, uint32_t bank);
+fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_cfg_t const* const p_cfg);
+fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl* const p_ctrl);
+fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint32_t const bytes, bool const read_after_write);
+fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const bytes);
+fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_direct_transfer_t* const p_transfer, spi_flash_direct_transfer_dir_t direction);
+fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_protocol_t spi_protocol);
+fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl* const p_ctrl);
+fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl* const p_ctrl);
+fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint8_t* const p_dest, uint32_t byte_count);
+fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_device_address, uint32_t byte_count);
+fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_status_t* const p_status);
+fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl* const p_ctrl, uint32_t bank);
 
 #endif  // MC80_OSPI_DRV_H
