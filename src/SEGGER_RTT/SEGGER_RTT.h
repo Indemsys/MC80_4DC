@@ -59,7 +59,7 @@ Revision: $Rev: 25842 $
 #define SEGGER_RTT_H
 
 #include "SEGGER_RTT_Conf.h"
-
+#include "RTT_utils.h"
 /*********************************************************************
 *
 *       Defines, defaults

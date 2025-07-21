@@ -9,7 +9,6 @@
 
 #include "App.h"
 #include "littlefs_adapter.h"
-#include "RTT_utils.h"
 
 // Global LittleFS context
 T_littlefs_context g_littlefs_context;
@@ -18,7 +17,7 @@ T_littlefs_context g_littlefs_context;
 static bool g_xip_mode_active = false;
 
 // External references to OSPI driver
-extern const spi_flash_instance_t g_OSPI;
+extern const T_mc80_ospi_instance g_mc80_ospi;
 
 /*-----------------------------------------------------------------------------------------------------
   Description: Enter XIP mode for direct memory access
@@ -34,7 +33,7 @@ static int _enter_xip_mode(void)
     return 0; // Already in XIP mode
   }
 
-  fsp_err_t err = g_OSPI.p_api->xipEnter(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (FSP_SUCCESS == err)
   {
     g_xip_mode_active = true;
@@ -62,7 +61,7 @@ static int _exit_xip_mode(void)
     return 0; // Already not in XIP mode
   }
 
-  fsp_err_t err = g_OSPI.p_api->xipExit(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (FSP_SUCCESS == err)
   {
     g_xip_mode_active = false;
@@ -84,16 +83,16 @@ static int _exit_xip_mode(void)
 
   Return: 0 on success, error code on failure
 -----------------------------------------------------------------------------------------------------*/
-static int _wait_flash_ready(const spi_flash_instance_t *p_spi_flash, uint32_t timeout_ms)
+static int _wait_flash_ready(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t timeout_ms)
 {
-  spi_flash_status_t status;
+  T_mc80_ospi_status status;
   fsp_err_t err;
   uint32_t wait_count = 0;
   const uint32_t max_wait_count = timeout_ms; // 1ms per iteration
 
   do
   {
-    err = p_spi_flash->p_api->statusGet(p_spi_flash->p_ctrl, &status);
+    err = Mc80_ospi_status_get(p_ctrl, &status);
     if (err != FSP_SUCCESS)
     {
       RTT_err_printf(0, "Failed to get flash status during wait: %u\n", (unsigned int)err);
@@ -134,7 +133,7 @@ int Littlefs_initialize(void)
   }
 
   // Initialize OSPI driver first
-  err = g_OSPI.p_api->open(g_OSPI.p_ctrl, g_OSPI.p_cfg);
+  err = Mc80_ospi_open(g_mc80_ospi.p_ctrl, g_mc80_ospi.p_cfg);
   if (err != FSP_SUCCESS)
   {
     // Check if driver is already opened
@@ -154,8 +153,8 @@ int Littlefs_initialize(void)
   }
 
   // Check if flash is ready
-  spi_flash_status_t flash_status;
-  err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &flash_status);
+  T_mc80_ospi_status flash_status;
+  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &flash_status);
   if (err != FSP_SUCCESS)
   {
     RTT_err_printf(0, "Failed to get OSPI flash status: %u\n\r", (unsigned int)err);
@@ -184,7 +183,7 @@ int Littlefs_initialize(void)
   {
     g_littlefs_context.filesystem_mounted = true;
   }  // Configure LittleFS
-  g_littlefs_context.cfg.context = (void *)&g_OSPI;
+  g_littlefs_context.cfg.context = (void *)g_mc80_ospi.p_ctrl;
 
   // Block device operations
   g_littlefs_context.cfg.read = _lfs_read;
@@ -304,7 +303,7 @@ int Littlefs_unmount(void)
   // Check if driver is initialized and close it
   if (g_littlefs_context.driver_initialized)
   {
-    fsp_err = g_OSPI.p_api->close(g_OSPI.p_ctrl);
+    fsp_err = Mc80_ospi_close(g_mc80_ospi.p_ctrl);
     if (fsp_err != FSP_SUCCESS)
     {
       APP_ERR_PRINT("OSPI driver close failed: %u\n\r", (unsigned int)fsp_err);
@@ -361,7 +360,7 @@ int _lfs_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void
   }
 
   // Calculate XIP address by adding flash offset to XIP base
-  uint8_t *xip_address = (uint8_t *)(OSPI_BASE_ADDRESS + address);
+  uint8_t *xip_address = (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address);
 
   // Perform direct memory copy from XIP space
   memcpy(buffer, xip_address, size);
@@ -390,8 +389,8 @@ int _lfs_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void
 int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buffer, lfs_size_t size)
 {
   fsp_err_t err;
-  const spi_flash_instance_t *p_spi_flash = (const spi_flash_instance_t *)c->context;
-  spi_flash_status_t status;
+  T_mc80_ospi_instance_ctrl *p_ctrl = (T_mc80_ospi_instance_ctrl *)c->context;
+  T_mc80_ospi_status status;
 
   // Calculate absolute address
   uint32_t address = (block * c->block_size) + off;
@@ -418,7 +417,7 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
   }
 
   // Set SPI protocol for write operations
-  err = p_spi_flash->p_api->spiProtocolSet(p_spi_flash->p_ctrl, SPI_FLASH_PROTOCOL_EXTENDED_SPI);
+  err = Mc80_ospi_spi_protocol_set(p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
   if (err != FSP_SUCCESS)
   {
     RTT_printf(0, "Warning: Failed to set SPI protocol: %u\n", (unsigned int)err);
@@ -426,7 +425,7 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
   }
 
   // Check flash status before write
-  err = p_spi_flash->p_api->statusGet(p_spi_flash->p_ctrl, &status);
+  err = Mc80_ospi_status_get(p_ctrl, &status);
   if (err != FSP_SUCCESS)
   {
     RTT_err_printf(0, "Failed to get flash status before write: %u\n", (unsigned int)err);
@@ -440,7 +439,7 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
   }
 
   // Write data using OSPI driver with correct base address
-  err = p_spi_flash->p_api->write(p_spi_flash->p_ctrl, (uint8_t *)buffer, (uint8_t *)(OSPI_BASE_ADDRESS + address), size);
+  err = Mc80_ospi_write(p_ctrl, (uint8_t *)buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
 
   if (err != FSP_SUCCESS)
   {
@@ -450,7 +449,7 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
   }
 
   // Wait for write operation to complete
-  if (_wait_flash_ready(p_spi_flash, 1000) != 0) // 1 second timeout for write
+  if (_wait_flash_ready(p_ctrl, 1000) != 0) // 1 second timeout for write
   {
     RTT_err_printf(0, "Timeout waiting for write completion\n");
     return -1;
@@ -471,8 +470,8 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
 int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
   fsp_err_t err;
-  const spi_flash_instance_t *p_spi_flash = (const spi_flash_instance_t *)c->context;
-  spi_flash_status_t status;
+  T_mc80_ospi_instance_ctrl *p_ctrl = (T_mc80_ospi_instance_ctrl *)c->context;
+  T_mc80_ospi_status status;
 
   // Calculate absolute address
   uint32_t address = block * c->block_size;
@@ -488,7 +487,7 @@ int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
   }
 
   // Set SPI protocol for erase operations
-  err = p_spi_flash->p_api->spiProtocolSet(p_spi_flash->p_ctrl, SPI_FLASH_PROTOCOL_EXTENDED_SPI);
+  err = Mc80_ospi_spi_protocol_set(p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
   if (err != FSP_SUCCESS)
   {
     RTT_printf(0, "Warning: Failed to set SPI protocol for erase: %u\n", (unsigned int)err);
@@ -496,7 +495,7 @@ int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
   }
 
   // Check flash status before erase
-  err = p_spi_flash->p_api->statusGet(p_spi_flash->p_ctrl, &status);
+  err = Mc80_ospi_status_get(p_ctrl, &status);
   if (err != FSP_SUCCESS)
   {
     RTT_err_printf(0, "Failed to get flash status before erase: %u\n", (unsigned int)err);
@@ -510,7 +509,7 @@ int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
   }
 
   // Erase block using OSPI driver with correct base address
-  err = p_spi_flash->p_api->erase(p_spi_flash->p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + address), c->block_size);
+  err = Mc80_ospi_erase(p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), c->block_size);
 
   if (err != FSP_SUCCESS)
   {
@@ -519,7 +518,7 @@ int _lfs_erase(const struct lfs_config *c, lfs_block_t block)
   }
 
   // Wait for erase operation to complete (erase can take several milliseconds)
-  if (_wait_flash_ready(p_spi_flash, 5000) != 0) // 5 second timeout
+  if (_wait_flash_ready(p_ctrl, 5000) != 0) // 5 second timeout
   {
     RTT_err_printf(0, "Timeout waiting for erase completion\n");
     return -1;

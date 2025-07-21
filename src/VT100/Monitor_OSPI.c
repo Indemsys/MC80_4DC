@@ -8,10 +8,6 @@
 -----------------------------------------------------------------------------------------------------*/
 
 #include "App.h"
-#include "RTT_utils.h"
-
-// External OSPI driver reference
-extern const spi_flash_instance_t g_OSPI;
 
 #define OSPI_TEST_PATTERN_SIZE 256
 #define OSPI_TEST_SECTOR_SIZE  4096
@@ -82,8 +78,8 @@ void OSPI_test_info(uint8_t keycode)
   }
 
   // Try to get flash status to verify communication
-  spi_flash_status_t status;
-  fsp_err_t          err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  T_mc80_ospi_status status;
+  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
 
   if (err == FSP_SUCCESS)
   {
@@ -139,8 +135,8 @@ void OSPI_test_status(uint8_t keycode)
     return;
   }
 
-  spi_flash_status_t status;
-  fsp_err_t          err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  T_mc80_ospi_status status;
+  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
 
   if (err == FSP_SUCCESS)
   {
@@ -157,13 +153,13 @@ void OSPI_test_status(uint8_t keycode)
   MPRINTF("\n\rTesting XIP mode operations...\n\r");
 
   // Try to enter XIP mode
-  err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("XIP Enter: SUCCESS\n\r");
 
     // Try to exit XIP mode
-    err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
     if (err == FSP_SUCCESS)
     {
       MPRINTF("XIP Exit: SUCCESS\n\r");
@@ -180,7 +176,7 @@ void OSPI_test_status(uint8_t keycode)
 
   // Test SPI protocol setting
   MPRINTF("\n\rTesting SPI protocol setting...\n\r");
-  err = g_OSPI.p_api->spiProtocolSet(g_OSPI.p_ctrl, SPI_FLASH_PROTOCOL_EXTENDED_SPI);
+  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("SPI Protocol Set: SUCCESS\n\r");
@@ -246,7 +242,7 @@ void OSPI_test_read(uint8_t keycode)
   }
 
   // Exit XIP mode to start fresh
-  err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Initial XIP exit: SUCCESS\n\r");
@@ -261,7 +257,7 @@ void OSPI_test_read(uint8_t keycode)
   MPRINTF("\n\r=== Test 1: Multiple reads in same XIP session ===\n\r");
 
   // Enter XIP mode
-  err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("XIP enter failed: 0x%X\n\r", err);
@@ -337,7 +333,7 @@ void OSPI_test_read(uint8_t keycode)
   // Exit and re-enter XIP
   MPRINTF("\n\r=== Test 2: Read after XIP exit/enter cycle ===\n\r");
 
-  err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("XIP exit failed: 0x%X\n\r", err);
@@ -349,7 +345,7 @@ void OSPI_test_read(uint8_t keycode)
 
   R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
 
-  err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("XIP re-enter failed: 0x%X\n\r", err);
@@ -376,9 +372,9 @@ void OSPI_test_read(uint8_t keycode)
   MPRINTF("\n\r=== Test 3: Double read after each XIP enter ===\n\r");
 
   // Exit and enter again
-  R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-  R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   SCB_InvalidateDCache();
   __DSB();
   R_BSP_SoftwareDelay(5, BSP_DELAY_UNITS_MILLISECONDS);
@@ -443,7 +439,7 @@ void OSPI_test_read(uint8_t keycode)
 
 cleanup:
   // Final XIP exit
-  R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
 
   App_free(buffer1);
   App_free(buffer2);
@@ -517,15 +513,15 @@ void OSPI_test_write(uint8_t keycode)
   MPRINTF("Test pattern created (64 bytes starting with 0x55)\n\r");
 
   // Exit XIP mode
-  fsp_err_t err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
   }
 
   // Check flash status
-  spi_flash_status_t status;
-  err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  T_mc80_ospi_status status;
+  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   if (err == FSP_SUCCESS && status.write_in_progress)
   {
     MPRINTF("Flash is busy, waiting...\n\r");
@@ -533,13 +529,13 @@ void OSPI_test_write(uint8_t keycode)
     do
     {
       R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
     } while (status.write_in_progress);
   }
 
   // Perform write
   MPRINTF("Writing 64 bytes to flash offset 0x00000000...\n\r");
-  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 64);
+  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 64);
 
   if (err == FSP_SUCCESS)
   {
@@ -549,7 +545,7 @@ void OSPI_test_write(uint8_t keycode)
     do
     {
       R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
     } while (status.write_in_progress);
 
     MPRINTF("Write completed\n\r");
@@ -558,7 +554,7 @@ void OSPI_test_write(uint8_t keycode)
     MPRINTF("Reading back data for verification...\n\r");
 
     // Enter XIP mode for read
-    err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
     if (err != FSP_SUCCESS)
     {
       RTT_printf(0, "  XIP enter failed: 0x%x\r\n", err);
@@ -571,7 +567,7 @@ void OSPI_test_write(uint8_t keycode)
     memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, 64);
 
     // Exit XIP mode
-    err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
     if (err != FSP_SUCCESS)
     {
       RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
@@ -679,27 +675,27 @@ void OSPI_test_erase(uint8_t keycode)
   }
 
   // Exit XIP mode
-  fsp_err_t err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
   }
 
   // Check initial flash status
-  spi_flash_status_t status;
-  err = g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+  T_mc80_ospi_status status;
+  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   if (err == FSP_SUCCESS && status.write_in_progress)
   {
     MPRINTF("Flash is busy, waiting...\n\r");
     do
     {
       R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
     } while (status.write_in_progress);
   }
 
   MPRINTF("Erasing 4KB sector at flash offset 0x00000000...\n\r");
-  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
+  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
 
   if (err == FSP_SUCCESS)
   {
@@ -711,7 +707,7 @@ void OSPI_test_erase(uint8_t keycode)
     {
       R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
       wait_count += 10;
-      g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
 
       if (wait_count % 100 == 0)
       {
@@ -733,7 +729,7 @@ void OSPI_test_erase(uint8_t keycode)
       MPRINTF("Reading back erased data for verification...\n\r");
 
       // Enter XIP mode for read
-      err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+      err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
         RTT_printf(0, "  XIP enter failed: 0x%x\r\n", err);
@@ -745,7 +741,7 @@ void OSPI_test_erase(uint8_t keycode)
       memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, 256);
 
       // Exit XIP mode
-      err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+      err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
         RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
@@ -854,7 +850,7 @@ void OSPI_test_pattern(uint8_t keycode)
   uint8_t *read_buffer  = (uint8_t *)App_malloc(OSPI_TEST_PATTERN_SIZE);
 
   // Declare variables used in goto sections to avoid bypass warnings
-  spi_flash_status_t status;
+  T_mc80_ospi_status status;
   uint32_t           wait_count  = 0;
   bool               match       = true;
   int                first_error = -1;
@@ -878,7 +874,7 @@ void OSPI_test_pattern(uint8_t keycode)
   }
 
   // Exit XIP mode
-  fsp_err_t err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
@@ -886,7 +882,7 @@ void OSPI_test_pattern(uint8_t keycode)
 
   // Step 1: Erase sector
   MPRINTF("Step 1: Erasing sector...\n\r");
-  err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
+  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Erase failed: 0x%X\n\r", err);
@@ -899,7 +895,7 @@ void OSPI_test_pattern(uint8_t keycode)
   {
     R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
     wait_count += 10;
-    g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+    Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   } while (status.write_in_progress && wait_count < 5000);
 
   if (status.write_in_progress)
@@ -911,7 +907,7 @@ void OSPI_test_pattern(uint8_t keycode)
 
   // Step 2: Write pattern
   MPRINTF("Step 2: Writing pattern (%d bytes)...\n\r", OSPI_TEST_PATTERN_SIZE);
-  err = g_OSPI.p_api->write(g_OSPI.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_PATTERN_SIZE);
+  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_PATTERN_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Write failed: 0x%X\n\r", err);
@@ -924,7 +920,7 @@ void OSPI_test_pattern(uint8_t keycode)
   {
     R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
     wait_count++;
-    g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+    Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   } while (status.write_in_progress && wait_count < 1000);
 
   if (status.write_in_progress)
@@ -939,7 +935,7 @@ void OSPI_test_pattern(uint8_t keycode)
   memset(read_buffer, 0, OSPI_TEST_PATTERN_SIZE);
 
   // Enter XIP mode for read
-  err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("XIP enter failed: 0x%X\n\r", err);
@@ -950,7 +946,7 @@ void OSPI_test_pattern(uint8_t keycode)
   memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, OSPI_TEST_PATTERN_SIZE);
 
   // Exit XIP mode
-  err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("XIP exit failed: 0x%X\n\r", err);
@@ -1046,7 +1042,7 @@ void OSPI_test_sector(uint8_t keycode)
   uint8_t *chunk_read  = (uint8_t *)App_malloc(256);
 
   // Declare variables used in goto sections to avoid bypass warnings
-  spi_flash_status_t status;
+  T_mc80_ospi_status status;
   uint32_t           wait_count = 0;
   int                errors     = 0;
 
@@ -1062,11 +1058,11 @@ void OSPI_test_sector(uint8_t keycode)
   }
 
   // Exit XIP mode
-  R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+  Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
 
   // Erase entire sector
   MPRINTF("Erasing 4KB sector...\n\r");
-  fsp_err_t err = g_OSPI.p_api->erase(g_OSPI.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
+  fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Sector erase failed: 0x%X\n\r", err);
@@ -1079,7 +1075,7 @@ void OSPI_test_sector(uint8_t keycode)
   {
     R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
     wait_count += 10;
-    g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+    Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   } while (status.write_in_progress && wait_count < 10000);
 
   MPRINTF("Sector erased in %u ms\n\r", wait_count);
@@ -1097,7 +1093,7 @@ void OSPI_test_sector(uint8_t keycode)
     }
 
     // Write chunk
-    err = g_OSPI.p_api->write(g_OSPI.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
+    err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Write chunk %d failed: 0x%X\n\r", chunk, err);
@@ -1109,14 +1105,14 @@ void OSPI_test_sector(uint8_t keycode)
     do
     {
       R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      g_OSPI.p_api->statusGet(g_OSPI.p_ctrl, &status);
+      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
     } while (status.write_in_progress);
 
     // Read back chunk
     memset(chunk_read, 0, 256);
 
     // Enter XIP mode for read
-    err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("XIP enter for chunk %d failed: 0x%X\n\r", chunk, err);
@@ -1128,7 +1124,7 @@ void OSPI_test_sector(uint8_t keycode)
     memcpy(chunk_read, (void *)(OSPI_BASE_ADDRESS + address), 256);
 
     // Exit XIP mode
-    err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("XIP exit for chunk %d failed: 0x%X\n\r", chunk, err);
@@ -1220,7 +1216,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
 
   // Test 1: Enter XIP mode
   MPRINTF("Test 1: Entering XIP mode...\n\r");
-  fsp_err_t err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+  fsp_err_t err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("XIP Enter: SUCCESS\n\r");
@@ -1247,13 +1243,13 @@ void OSPI_test_xip_mode(uint8_t keycode)
     MPRINTF("\n\rTest 3: Comparing XIP vs SPI read...\n\r");
 
     // Exit XIP for SPI read
-    err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
     if (err == FSP_SUCCESS)
     {
       MPRINTF("XIP Exit: SUCCESS\n\r");
 
       // Enter XIP mode for read
-      err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+      err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
         MPRINTF("XIP re-enter failed: 0x%X\n\r", err);
@@ -1265,7 +1261,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
       memcpy(compare_buffer, (void *)OSPI_BASE_ADDRESS, 256);
 
       // Exit XIP mode
-      err = R_OSPI_B_XipExit(g_OSPI.p_ctrl);
+      err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
         MPRINTF("XIP exit failed: 0x%X\n\r", err);
@@ -1278,7 +1274,7 @@ void OSPI_test_xip_mode(uint8_t keycode)
         MPRINTF("SPI read: SUCCESS\n\r");
 
         // Re-enter XIP
-        err = R_OSPI_B_XipEnter(g_OSPI.p_ctrl);
+        err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
         if (err == FSP_SUCCESS)
         {
           MPRINTF("XIP Re-enter: SUCCESS\n\r");
@@ -1362,7 +1358,7 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
   fsp_err_t err;
 
   // Try to open the driver - if already open, will return FSP_ERR_ALREADY_OPEN
-  err = g_OSPI.p_api->open(g_OSPI.p_ctrl, g_OSPI.p_cfg);
+  err = Mc80_ospi_open(g_mc80_ospi.p_ctrl, g_mc80_ospi.p_cfg);
 
   if (err == FSP_SUCCESS)
   {
