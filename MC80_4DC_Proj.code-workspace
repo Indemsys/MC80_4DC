@@ -19,7 +19,10 @@
       "main_task.h": "c",
       "system_error_flags.h": "c",
       "rtt_utils.h": "c",
-      "ospi_config.h": "c"
+      "ospi_config.h": "c",
+      "r_spi_flash_api.h": "c",
+      "r_ospi_b_cfg.h": "c",
+      "mc80_ospi_config.h": "c"
     }
   }
 }

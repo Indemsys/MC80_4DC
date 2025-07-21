@@ -10598,16 +10598,34 @@
                     <name>$PROJ_DIR$\src\Board\LevelX_config.h</name>
                 </file>
                 <file>
+                    <name>$PROJ_DIR$\src\Board\MC80_OSPI_config.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\MC80_OSPI_config.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\MC80_OSPI_drv.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\MC80_OSPI_drv.h</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\MC80V1_pins.c</name>
+                </file>
+                <file>
+                    <name>$PROJ_DIR$\src\Board\MC80V1_pins.h</name>
+                </file>
+                <file>
                     <name>$PROJ_DIR$\src\Board\MotDrv_TMC6200.c</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Board\MotDrv_TMC6200.h</name>
                 </file>
                 <file>
-                    <name>$PROJ_DIR$\src\Board\OSPI_config.c</name>
+                    <name>$PROJ_DIR$\src\Board\mx25um25645g.h</name>
                 </file>
                 <file>
-                    <name>$PROJ_DIR$\src\Board\OSPI_config.h</name>
+                    <name>$PROJ_DIR$\src\Board\RA8M1_OSPI.h</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Board\SPI_Display.c</name>
@@ -10653,12 +10671,6 @@
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Chip\Flash_driver.h</name>
-                </file>
-                <file>
-                    <name>$PROJ_DIR$\src\Chip\MC80V1_pins.c</name>
-                </file>
-                <file>
-                    <name>$PROJ_DIR$\src\Chip\MC80V1_pins.h</name>
                 </file>
                 <file>
                     <name>$PROJ_DIR$\src\Chip\Memory_manager.c</name>
