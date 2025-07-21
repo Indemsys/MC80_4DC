@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------------------------------*/
 
 #include "App.h"
+#include "RA8M1_OSPI.h"
 
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
@@ -42,7 +43,7 @@
 #define MC80_OSPI_PRV_AUTOCALIBRATION_LATENCY_CYCLES        (0U)
 
 #define MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE                 (0xF0U)
-#define MC80_OSPI_PRV_ADDRESS_REPLACE_ENABLE_BITS           (MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << R_XSPI0_CMCFGCS_CMCFG0_ADDRPEN_Pos)
+#define MC80_OSPI_PRV_ADDRESS_REPLACE_ENABLE_BITS           (MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << OSPI_CMCFG0CSN_ADDRPEN_Pos)
 #define MC80_OSPI_PRV_ADDRESS_REPLACE_MASK                  (~(MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << 24))
 
 #define MC80_OSPI_PRV_WORD_ACCESS_SIZE                      (4U)
@@ -64,10 +65,10 @@
 #define MC80_OSPI_PRV_BMCTL0_WRITE_ONLY_VALUE               (0xAA)  // 0b1010'1010
 #define MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE               (0xFF)  // 0b1111'1111
 
-#define MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK            (0x03 << R_XSPI0_BMCTL1_PBUFCLRCH_Pos)
-#define MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK    (0x03 << R_XSPI0_BMCTL1_MWRPUSHCH_Pos)
+#define MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK            (0x03 << OSPI_BMCTL1_PBUFCLRCH0_Pos)
+#define MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK    (0x03 << OSPI_BMCTL1_MWRPUSHCH0_Pos)
 
-#define MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK                  (0x03 << R_XSPI0_COMSTT_MEMACCCH_Pos)
+#define MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK                  (0x03 << OSPI_COMSTT_MEMACCCH0_Pos)
 
 #define MC80_OSPI_SOFTWARE_DELAY                            (50U)
 
@@ -173,42 +174,42 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   // Disable memory-mapping for this slave. It will be enabled later on after initialization
   if (MC80_OSPI_DEVICE_NUMBER_0 == p_instance_ctrl->channel)
   {
-    p_reg->BMCTL0 &= ~(R_XSPI0_BMCTL0_CH0CS0ACC_Msk | R_XSPI0_BMCTL0_CH1CS0ACC_Msk);
+    p_reg->BMCTL0 &= ~(OSPI_BMCTL0_CH0CS0ACC_Msk);
   }
   else
   {
-    p_reg->BMCTL0 &= ~(R_XSPI0_BMCTL0_CH0CS1ACC_Msk | R_XSPI0_BMCTL0_CH1CS1ACC_Msk);
+    p_reg->BMCTL0 &= ~(OSPI_BMCTL0_CH0CS1ACC_Msk);
   }
 
   // Perform xSPI Initial configuration as described in hardware manual
   // Set xSPI protocol mode
-  uint32_t liocfg                        = ((uint32_t)p_cfg->spi_protocol) << R_XSPI0_LIOCFGCS_PRTMD_Pos;
+  uint32_t liocfg                        = ((uint32_t)p_cfg->spi_protocol) << OSPI_LIOCFGCSN_PRTMD_Pos;
   p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
 
   // Set xSPI drive/sampling timing
   if (MC80_OSPI_DEVICE_NUMBER_0 == p_instance_ctrl->channel)
   {
-    p_reg->WRAPCFG = ((uint32_t)p_cfg_extend->data_latch_delay_clocks << R_XSPI0_WRAPCFG_DSSFTCS0_Pos) & R_XSPI0_WRAPCFG_DSSFTCS0_Msk;
+    p_reg->WRAPCFG = ((uint32_t)p_cfg_extend->data_latch_delay_clocks << OSPI_WRAPCFG_DSSFTCS0_Pos) & OSPI_WRAPCFG_DSSFTCS0_Msk;
   }
   else
   {
-    p_reg->WRAPCFG = ((uint32_t)p_cfg_extend->data_latch_delay_clocks << R_XSPI0_WRAPCFG_DSSFTCS1_Pos) & R_XSPI0_WRAPCFG_DSSFTCS1_Msk;
+    p_reg->WRAPCFG = ((uint32_t)p_cfg_extend->data_latch_delay_clocks << OSPI_WRAPCFG_DSSFTCS1_Pos) & OSPI_WRAPCFG_DSSFTCS1_Msk;
   }
 
   // Set minimum cycles between xSPI frames
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->command_to_command_interval << R_XSPI0_LIOCFGCS_CSMIN_Pos) & R_XSPI0_LIOCFGCS_CSMIN_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->command_to_command_interval << OSPI_LIOCFGCSN_CSMIN_Pos) & OSPI_LIOCFGCSN_CSMIN_Msk;
 
   // Set CS asserting extension in cycles
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->cs_pulldown_lead << R_XSPI0_LIOCFGCS_CSASTEX_Pos) & R_XSPI0_LIOCFGCS_CSASTEX_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->cs_pulldown_lead << OSPI_LIOCFGCSN_CSASTEX_Pos) & OSPI_LIOCFGCSN_CSASTEX_Msk;
 
   // Set CS releasing extension in cycles
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->cs_pullup_lag << R_XSPI0_LIOCFGCS_CSNEGEX_Pos) & R_XSPI0_LIOCFGCS_CSNEGEX_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->cs_pullup_lag << OSPI_LIOCFGCSN_CSNEGEX_Pos) & OSPI_LIOCFGCSN_CSNEGEX_Msk;
 
   // Set SDR and DDR timing
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_drive_timing << R_XSPI0_LIOCFGCS_SDRDRV_Pos) & R_XSPI0_LIOCFGCS_SDRDRV_Msk;
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_sampling_edge << R_XSPI0_LIOCFGCS_SDRSMPMD_Pos) & R_XSPI0_LIOCFGCS_SDRSMPMD_Msk;
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_sampling_delay << R_XSPI0_LIOCFGCS_SDRSMPSFT_Pos) & R_XSPI0_LIOCFGCS_SDRSMPSFT_Msk;
-  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->ddr_sampling_extension << R_XSPI0_LIOCFGCS_DDRSMPEX_Pos) & R_XSPI0_LIOCFGCS_DDRSMPEX_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_drive_timing << OSPI_LIOCFGCSN_SDRDRV_Pos) & OSPI_LIOCFGCSN_SDRDRV_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_sampling_edge << OSPI_LIOCFGCSN_SDRSMPMD_Pos) & OSPI_LIOCFGCSN_SDRSMPMD_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_sampling_delay << OSPI_LIOCFGCSN_SDRSMPSFT_Pos) & OSPI_LIOCFGCSN_SDRSMPSFT_Msk;
+  liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->ddr_sampling_extension << OSPI_LIOCFGCSN_DDRSMPEX_Pos) & OSPI_LIOCFGCSN_DDRSMPEX_Msk;
 
   // Set xSPI CSn signal timings
   p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
@@ -217,11 +218,11 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   ret                                    = _Mc80_ospi_protocol_specific_settings(p_instance_ctrl);
 
   // Return response after issuing write transaction to xSPI bus, Enable prefetch function and combination if desired
-  const uint32_t bmcfgch                 = (0 << R_XSPI0_BMCFGCH_WRMD_Pos) |
-                           ((MC80_OSPI_CFG_COMBINATION_FUNCTION << R_XSPI0_BMCFGCH_MWRCOMB_Pos) &
-                            (R_XSPI0_BMCFGCH_MWRCOMB_Msk | R_XSPI0_BMCFGCH_MWRSIZE_Msk)) |
-                           ((MC80_OSPI_CFG_PREFETCH_FUNCTION << R_XSPI0_BMCFGCH_PREEN_Pos) &
-                            R_XSPI0_BMCFGCH_PREEN_Msk);
+  const uint32_t bmcfgch                 = (0 << OSPI_BMCFGCH_WRMD_Pos) |
+                           ((MC80_OSPI_CFG_COMBINATION_FUNCTION << OSPI_BMCFGCH_MWRCOMB_Pos) &
+                            (OSPI_BMCFGCH_MWRCOMB_Msk | OSPI_BMCFGCH_MWRSIZE_Msk)) |
+                           ((MC80_OSPI_CFG_PREFETCH_FUNCTION << OSPI_BMCFGCH_PREEN_Pos) &
+                            OSPI_BMCFGCH_PREEN_Msk);
 
   // Both of these should have the same configuration and it affects all OSPI slave channels
   p_reg->BMCFGCH[0] = bmcfgch;
@@ -230,11 +231,11 @@ fsp_err_t Mc80_ospi_open(spi_flash_ctrl_t *const p_ctrl, spi_flash_cfg_t const *
   // Re-activate memory-mapped mode in Read/Write
   if (0 == p_instance_ctrl->channel)
   {
-    p_reg->BMCTL0 |= R_XSPI0_BMCTL0_CH0CS0ACC_Msk | R_XSPI0_BMCTL0_CH1CS0ACC_Msk;
+    p_reg->BMCTL0 |= OSPI_BMCTL0_CH0CS0ACC_Msk;
   }
   else
   {
-    p_reg->BMCTL0 |= R_XSPI0_BMCTL0_CH0CS1ACC_Msk | R_XSPI0_BMCTL0_CH1CS1ACC_Msk;
+    p_reg->BMCTL0 |= OSPI_BMCTL0_CH0CS1ACC_Msk;
   }
 
   if (FSP_SUCCESS == ret)
@@ -796,16 +797,16 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   p_instance_ctrl->p_cmd_set = p_cmd_set;
 
   // Update the SPI protocol and latency mode
-  uint32_t liocfg            = p_reg->LIOCFGCS[p_instance_ctrl->channel] & ~(R_XSPI0_LIOCFGCS_LATEMD_Msk | R_XSPI0_LIOCFGCS_PRTMD_Msk);
-  liocfg |= (((uint32_t)p_instance_ctrl->spi_protocol << R_XSPI0_LIOCFGCS_PRTMD_Pos) & R_XSPI0_LIOCFGCS_PRTMD_Msk);
-  liocfg |= (((uint32_t)p_cmd_set->latency_mode << R_XSPI0_LIOCFGCS_LATEMD_Pos) & R_XSPI0_LIOCFGCS_LATEMD_Msk);
+  uint32_t liocfg            = p_reg->LIOCFGCS[p_instance_ctrl->channel] & ~(OSPI_LIOCFGCSN_LATEMD_Msk | OSPI_LIOCFGCSN_PRTMD_Msk);
+  liocfg |= (((uint32_t)p_instance_ctrl->spi_protocol << OSPI_LIOCFGCSN_PRTMD_Pos) & OSPI_LIOCFGCSN_PRTMD_Msk);
+  liocfg |= (((uint32_t)p_cmd_set->latency_mode << OSPI_LIOCFGCSN_LATEMD_Pos) & OSPI_LIOCFGCSN_LATEMD_Msk);
   p_reg->LIOCFGCS[p_instance_ctrl->channel] = liocfg;
 
   // Specifies the read/write commands and Read dummy clocks for Device
-  uint32_t cmcfg0                           = ((uint32_t)(p_cmd_set->address_msb_mask << R_XSPI0_CMCFGCS_CMCFG0_ADDRPEN_Pos)) |
-                    ((uint32_t)(p_cmd_set->frame_format << R_XSPI0_CMCFGCS_CMCFG0_FFMT_Pos)) |
-                    (((uint32_t)p_cmd_set->address_bytes << R_XSPI0_CMCFGCS_CMCFG0_ADDSIZE_Pos) &
-                     R_XSPI0_CMCFGCS_CMCFG0_ADDSIZE_Msk);
+  uint32_t cmcfg0                           = ((uint32_t)(p_cmd_set->address_msb_mask << OSPI_CMCFG0CSN_ADDRPEN_Pos)) |
+                    ((uint32_t)(p_cmd_set->frame_format << OSPI_CMCFG0CSN_FFMT_Pos)) |
+                    (((uint32_t)p_cmd_set->address_bytes << OSPI_CMCFG0CSN_ADDSIZE_Pos) &
+                     OSPI_CMCFG0CSN_ADDSIZE_Msk);
 
   // When using 4-byte addressing, always mask off the most-significant nybble to remove the system bus offset from
   // the transmitted addresses. Ex. CS1 starts at 0x9000_0000 so it needs to mask off bits [31:28]
@@ -815,7 +816,7 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   }
 
   // Apply the frame format setting and update the register
-  cmcfg0 |= (uint32_t)(p_cmd_set->frame_format << R_XSPI0_CMCFGCS_CMCFG0_FFMT_Pos);
+  cmcfg0 |= (uint32_t)(p_cmd_set->frame_format << OSPI_CMCFG0CSN_FFMT_Pos);
   p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG0 = cmcfg0;
 
   // Cache the appropriate command values for later use
@@ -832,13 +833,13 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   const uint8_t read_dummy_cycles                 = p_cmd_set->read_dummy_cycles;
   const uint8_t write_dummy_cycles                = p_cmd_set->program_dummy_cycles;
 
-  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG1 = (uint32_t)(((uint32_t)(read_command) << R_XSPI0_CMCFGCS_CMCFG1_RDCMD_Pos) |
-                                                               ((uint32_t)(read_dummy_cycles << R_XSPI0_CMCFGCS_CMCFG1_RDLATE_Pos) &
-                                                                R_XSPI0_CMCFGCS_CMCFG1_RDLATE_Msk));
+  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG1 = (uint32_t)(((uint32_t)(read_command) << OSPI_CMCFG1CSN_RDCMD_Pos) |
+                                                               ((uint32_t)(read_dummy_cycles << OSPI_CMCFG1CSN_RDLATE_Pos) &
+                                                                OSPI_CMCFG1CSN_RDLATE_Msk));
 
-  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG2 = (uint32_t)(((uint32_t)(write_command) << R_XSPI0_CMCFGCS_CMCFG2_WRCMD_Pos) |
-                                                               ((uint32_t)(write_dummy_cycles << R_XSPI0_CMCFGCS_CMCFG2_WRLATE_Pos) &
-                                                                R_XSPI0_CMCFGCS_CMCFG2_WRLATE_Msk));
+  p_reg->CMCFGCS[p_instance_ctrl->channel].CMCFG2 = (uint32_t)(((uint32_t)(write_command) << OSPI_CMCFG2CSN_WRCMD_Pos) |
+                                                               ((uint32_t)(write_dummy_cycles << OSPI_CMCFG2CSN_WRLATE_Pos) &
+                                                                OSPI_CMCFG2CSN_WRLATE_Msk));
 
   return ret;
 }
@@ -955,16 +956,16 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_inst
   const T_mc80_ospi_device_number channel = p_instance_ctrl->channel;
 
   uint32_t cdtbuf0 =
-  (((uint32_t)p_transfer->command_length << R_XSPI0_CDBUF_CDT_CMDSIZE_Pos) & R_XSPI0_CDBUF_CDT_CMDSIZE_Msk) |
-  (((uint32_t)p_transfer->address_length << R_XSPI0_CDBUF_CDT_ADDSIZE_Pos) & R_XSPI0_CDBUF_CDT_ADDSIZE_Msk) |
-  (((uint32_t)p_transfer->data_length << R_XSPI0_CDBUF_CDT_DATASIZE_Pos) & R_XSPI0_CDBUF_CDT_DATASIZE_Msk) |
-  (((uint32_t)p_transfer->dummy_cycles << R_XSPI0_CDBUF_CDT_LATE_Pos) & R_XSPI0_CDBUF_CDT_LATE_Msk) |
-  (((uint32_t)direction << R_XSPI0_CDBUF_CDT_TRTYPE_Pos) & R_XSPI0_CDBUF_CDT_TRTYPE_Msk);
+  (((uint32_t)p_transfer->command_length << OSPI_CDTBUFn_CMDSIZE_Pos) & OSPI_CDTBUFn_CMDSIZE_Msk) |
+  (((uint32_t)p_transfer->address_length << OSPI_CDTBUFn_ADDSIZE_Pos) & OSPI_CDTBUFn_ADDSIZE_Msk) |
+  (((uint32_t)p_transfer->data_length << OSPI_CDTBUFn_DATASIZE_Pos) & OSPI_CDTBUFn_DATASIZE_Msk) |
+  (((uint32_t)p_transfer->dummy_cycles << OSPI_CDTBUFn_LATE_Pos) & OSPI_CDTBUFn_LATE_Msk) |
+  (((uint32_t)direction << OSPI_CDTBUFn_TRTYPE_Pos) & OSPI_CDTBUFn_TRTYPE_Msk);
 
   cdtbuf0 |= (1 == p_transfer->command_length) ? ((p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET) : ((p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_OFFSET);
 
   // Setup the manual command control. Cancel any ongoing transactions, direct mode, set channel, 1 transaction
-  p_reg->CDCTL0 = ((((uint32_t)channel) << R_XSPI0_CDCTL0_CSSEL_Pos) & R_XSPI0_CDCTL0_CSSEL_Msk);
+  p_reg->CDCTL0 = ((((uint32_t)channel) << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
 
   // Direct Read/Write settings (see RA8M1 User's Manual section "Flow of Manual-command Procedure")
   while (p_reg->CDCTL0_b.TRREQ != 0)
@@ -1076,24 +1077,24 @@ static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl 
   }
 
   p_reg->CCCTLCS[channel].CCCTL1 =
-  (((uint32_t)command_bytes << R_XSPI0_CCCTLCS_CCCTL1_CACMDSIZE_Pos) &
-   R_XSPI0_CCCTLCS_CCCTL1_CACMDSIZE_Msk) |
-  (((uint32_t)address_bytes << R_XSPI0_CCCTLCS_CCCTL1_CAADDSIZE_Pos) &
-   R_XSPI0_CCCTLCS_CCCTL1_CAADDSIZE_Msk) |
-  (0xFU << R_XSPI0_CCCTLCS_CCCTL1_CADATASIZE_Pos) |
-  (0U << R_XSPI0_CCCTLCS_CCCTL1_CAWRLATE_Pos) |
-  (((uint32_t)read_dummy_cycles << R_XSPI0_CCCTLCS_CCCTL1_CARDLATE_Pos) &
-   R_XSPI0_CCCTLCS_CCCTL1_CARDLATE_Msk);
+  (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) &
+   OSPI_CCCTL1CSn_CACMDSIZE_Msk) |
+  (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) &
+   OSPI_CCCTL1CSn_CAADDSIZE_Msk) |
+  (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) |
+  (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) |
+  (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) &
+   OSPI_CCCTL1CSn_CARDLATE_Msk);
 
-  p_reg->CCCTLCS[channel].CCCTL2 = (uint32_t)read_command << R_XSPI0_CCCTLCS_CCCTL2_CARDCMD_Pos;
+  p_reg->CCCTLCS[channel].CCCTL2 = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
 
   p_reg->CCCTLCS[channel].CCCTL3 = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
 
   // Configure auto-calibration
   p_reg->CCCTLCS[channel].CCCTL0 =
-  (0x1FU << R_XSPI0_CCCTLCS_CCCTL0_CAINTE_Pos) |
-  (0x1U << R_XSPI0_CCCTLCS_CCCTL0_CANOWR_Pos) |
-  (0x1FU << R_XSPI0_CCCTLCS_CCCTL0_CADS_Pos);
+  (0x1FU << OSPI_CCCTL0CSn_CAITV_Pos) |
+  (0x1U << OSPI_CCCTL0CSn_CANOWR_Pos) |
+  (0x1FU << OSPI_CCCTL0CSn_CASFTEND_Pos);
 
   // Start auto-calibration
   p_reg->CCCTLCS[channel].CCCTL0_b.CAEN = 1;
@@ -1105,12 +1106,12 @@ static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl 
   }
 
   // Check if calibration was successful
-  if (0 != (p_reg->INTS & (1U << (R_XSPI0_INTS_CAFAILCS_Pos + channel))))
+  if (0 != (p_reg->INTS & (1U << (OSPI_INTS_CAFAILCS0_Pos + channel))))
   {
     ret         = FSP_ERR_CALIBRATE_FAILED;
 
     // Clear automatic calibration failure status
-    p_reg->INTC = (uint32_t)1 << (R_XSPI0_INTS_CAFAILCS_Pos + channel);
+    p_reg->INTC = (uint32_t)1 << (OSPI_INTS_CAFAILCS0_Pos + channel);
   }
 
   return ret;
@@ -1137,7 +1138,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_instance_ctrl, bool is_e
 
   // Clear the pre-fetch buffer for this bank so the next read is guaranteed to use the XiP code
   #if MC80_OSPI_CFG_PREFETCH_FUNCTION
-  p_reg->BMCTL1 |= 0x03U << R_XSPI0_BMCTL1_PBUFCLRCH_Pos;
+  p_reg->BMCTL1 |= 0x03U << OSPI_BMCTL1_PBUFCLRCH0_Pos;
   #endif
 
   // Wait for any on-going access to complete
@@ -1152,9 +1153,9 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_instance_ctrl, bool is_e
     p_reg->BMCTL0          = MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE;
 
     // Configure XiP codes and enable
-    const uint32_t cmctlch = R_XSPI0_CMCTLCH_XIPEN_Msk |
-                             ((uint32_t)(p_cfg->xip_enter_command << R_XSPI0_CMCTLCH_XIPENCODE_Pos)) |
-                             ((uint32_t)(p_cfg->xip_exit_command << R_XSPI0_CMCTLCH_XIPEXCODE_Pos));
+    const uint32_t cmctlch = OSPI_CMCTLCHn_XIPEN_Msk |
+                             ((uint32_t)(p_cfg->xip_enter_command << OSPI_CMCTLCHn_XIPENCODE_Pos)) |
+                             ((uint32_t)(p_cfg->xip_exit_command << OSPI_CMCTLCHn_XIPEXCODE_Pos));
 
     // XiP enter/exit codes are configured only for memory mapped operations and affects both OSPI slave channels
     p_reg->CMCTLCH[0] = cmctlch;
@@ -1172,8 +1173,8 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_instance_ctrl, bool is_e
   else
   {
     // Disable XiP
-    p_reg->CMCTLCH[0] &= ~R_XSPI0_CMCTLCH_XIPEN_Msk;
-    p_reg->CMCTLCH[1] &= ~R_XSPI0_CMCTLCH_XIPEN_Msk;
+    p_reg->CMCTLCH[0] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
+    p_reg->CMCTLCH[1] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
 
     // Perform a read to send the exit code. All further reads will not send an exit code
     dummy_read = *p_dummy_read_address;
