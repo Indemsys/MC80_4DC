@@ -1,10 +1,9 @@
 #ifndef MC80_OSPI_DRV_H
 #define MC80_OSPI_DRV_H
 
-// Required includes for basic types and SPI flash API
+// Required includes for basic types only
 #include <stdint.h>
 #include <stdbool.h>
-#include "r_spi_flash_api.h"
 #include "r_transfer_api.h"
 
 // Configuration defines - embedded in header
@@ -29,6 +28,9 @@
 #define MC80_OSPI0_BASE_ADDRESS                      (0x40268000UL)  // OSPI0 base address
 #define MC80_OSPI1_BASE_ADDRESS                      (0x40269000UL)  // OSPI1 base address
 #define MC80_OSPI_UNIT_ADDRESS_OFFSET                (MC80_OSPI1_BASE_ADDRESS - MC80_OSPI0_BASE_ADDRESS)
+
+// MC80 OSPI constants
+#define MC80_OSPI_ERASE_SIZE_CHIP_ERASE              (0xFFFFFFFFU)  // Special value for chip erase
 
 /*-----------------------------------------------------------------------------------------------------
   OSPI Flash chip select
@@ -231,6 +233,76 @@ typedef enum e_mc80_ospi_combination_function
 } T_mc80_ospi_combination_function;
 
 /*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Protocol modes (custom implementation)
+-----------------------------------------------------------------------------------------------------*/
+typedef enum e_mc80_ospi_protocol
+{
+  MC80_OSPI_PROTOCOL_1S_1S_1S = 0,  // Standard 1-bit serial mode
+  MC80_OSPI_PROTOCOL_1S_1S_2S = 1,  // Dual data mode
+  MC80_OSPI_PROTOCOL_1S_1S_4S = 2,  // Quad data mode
+  MC80_OSPI_PROTOCOL_1S_2S_2S = 3,  // Dual address and data mode
+  MC80_OSPI_PROTOCOL_1S_4S_4S = 4,  // Quad address and data mode
+  MC80_OSPI_PROTOCOL_2S_2S_2S = 5,  // Dual command, address and data mode
+  MC80_OSPI_PROTOCOL_4S_4S_4S = 6,  // Quad command, address and data mode
+  MC80_OSPI_PROTOCOL_8D_8D_8D = 7,  // OctalFlash DTR mode
+} T_mc80_ospi_protocol;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Address bytes configuration
+-----------------------------------------------------------------------------------------------------*/
+typedef enum e_mc80_ospi_address_bytes
+{
+  MC80_OSPI_ADDRESS_BYTES_NONE = 0,  // No address bytes (not used)
+  MC80_OSPI_ADDRESS_BYTES_3 = 2,     // 3 address bytes
+  MC80_OSPI_ADDRESS_BYTES_4 = 3,     // 4 address bytes
+} T_mc80_ospi_address_bytes;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Direct transfer direction
+-----------------------------------------------------------------------------------------------------*/
+typedef enum e_mc80_ospi_direct_transfer_dir
+{
+  MC80_OSPI_DIRECT_TRANSFER_DIR_READ  = 0,  // Read transfer
+  MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE = 1,  // Write transfer
+} T_mc80_ospi_direct_transfer_dir;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Status structure
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_status
+{
+  bool write_in_progress;  // Write operation in progress flag
+} T_mc80_ospi_status;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Direct transfer structure
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_direct_transfer
+{
+  union
+  {
+    uint64_t data_u64;     // Data as 64-bit value
+    uint8_t  data_bytes[8]; // Data as byte array
+    uint32_t data;         // Data as 32-bit value (for compatibility)
+  };
+  uint32_t address;        // Address for the transfer
+  uint16_t command;        // Command code
+  uint8_t  command_length; // Number of command bytes (1 or 2)
+  uint8_t  address_length; // Number of address bytes
+  uint8_t  data_length;    // Number of data bytes
+  uint8_t  dummy_cycles;   // Number of dummy cycles
+} T_mc80_ospi_direct_transfer;
+
+/*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Erase command structure
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_erase_command
+{
+  uint32_t size;     // Size of the erase operation in bytes
+  uint16_t command;  // Command code for this erase operation
+} T_mc80_ospi_erase_command;
+
+/*-----------------------------------------------------------------------------------------------------
   Simple array length table structure
 -----------------------------------------------------------------------------------------------------*/
 typedef struct st_mc80_ospi_table
@@ -258,11 +330,11 @@ typedef struct st_mc80_ospi_timing_setting
 -----------------------------------------------------------------------------------------------------*/
 typedef struct st_mc80_ospi_xspi_command_set
 {
-  spi_flash_protocol_t      protocol;              // Protocol mode associated with this command set
+  T_mc80_ospi_protocol      protocol;              // Protocol mode associated with this command set
   T_mc80_ospi_frame_format  frame_format;          // Frame format to use for this command set
   T_mc80_ospi_latency_mode  latency_mode;          // Configurable or variable latency, only valid for MC80_OSPI_FRAME_FORMAT_XSPI_PROFILE_2 and MC80_OSPI_FRAME_FORMAT_XSPI_PROFILE_2_EXTENDED
   T_mc80_ospi_command_bytes command_bytes;         // Number of command bytes for each command code
-  spi_flash_address_bytes_t address_bytes;         // Number of bytes used during the address phase
+  T_mc80_ospi_address_bytes address_bytes;         // Number of bytes used during the address phase
   uint16_t                  read_command;          // Read command
   uint16_t                  program_command;       // Memory program/write command
   uint16_t                  write_enable_command;  // Command to enable write or erase, set to 0x00 to ignore
@@ -273,7 +345,7 @@ typedef struct st_mc80_ospi_xspi_command_set
   uint8_t                   address_msb_mask;      // Mask of bits to zero when using memory-mapped operations; only applies to the most-significant byte
   bool                      status_needs_address;  // Indicates that reading the status register requires an address stage
   uint32_t                  status_address;        // Address to use for reading the status register with "busy" and "write-enable" flags
-  spi_flash_address_bytes_t status_address_bytes;  // Number of bytes used for status register addressing
+  T_mc80_ospi_address_bytes status_address_bytes;  // Number of bytes used for status register addressing
   T_mc80_ospi_table const*  p_erase_commands;      // List of all erase commands and associated sizes
 } T_mc80_ospi_xspi_command_set;
 
@@ -293,13 +365,27 @@ typedef struct st_mc80_ospi_extended_cfg
 } T_mc80_ospi_extended_cfg;
 
 /*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Configuration structure (replaces spi_flash_cfg_t)
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_cfg
+{
+  T_mc80_ospi_protocol              spi_protocol;         // SPI protocol to use for memory device operations
+  uint32_t                          page_size_bytes;      // Page size for memory device
+  uint8_t                           write_status_bit;     // Bit position for write-in-progress status
+  uint8_t                           write_enable_bit;     // Bit position for write-enable status
+  uint16_t                          xip_enter_command;    // Command to enter XIP mode
+  uint16_t                          xip_exit_command;     // Command to exit XIP mode
+  T_mc80_ospi_extended_cfg const*   p_extend;             // Extension configuration
+} T_mc80_ospi_cfg;
+
+/*-----------------------------------------------------------------------------------------------------
   Instance control block. DO NOT INITIALIZE.  Initialization occurs when Mc80_ospi_open is called
 -----------------------------------------------------------------------------------------------------*/
 typedef struct st_mc80_ospi_instance_ctrl
 {
-  spi_flash_cfg_t const*              p_cfg;         // Pointer to initial configuration
+  T_mc80_ospi_cfg const*              p_cfg;         // Pointer to initial configuration
   uint32_t                            open;          // Whether or not driver is open
-  spi_flash_protocol_t                spi_protocol;  // Current OSPI protocol selected
+  T_mc80_ospi_protocol                spi_protocol;  // Current OSPI protocol selected
   T_mc80_ospi_device_number           channel;       // Device number to be used for memory device
   uint8_t                             ospi_unit;     // OSPI instance number
   T_mc80_ospi_xspi_command_set const* p_cmd_set;     // Command set for the active protocol mode
@@ -311,17 +397,17 @@ typedef struct st_mc80_ospi_instance_ctrl
 -----------------------------------------------------------------------------------------------------*/
 typedef struct st_mc80_ospi_api
 {
-  fsp_err_t (* open)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_cfg_t const * const p_cfg);
+  fsp_err_t (* open)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_cfg const * const p_cfg);
   fsp_err_t (* close)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* write)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint8_t * const p_dest, uint32_t byte_count);
   fsp_err_t (* erase)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_device_address, uint32_t byte_count);
-  fsp_err_t (* statusGet)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_status_t * const p_status);
-  fsp_err_t (* spiProtocolSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_protocol_t spi_protocol);
+  fsp_err_t (* statusGet)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_status * const p_status);
+  fsp_err_t (* spiProtocolSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_protocol spi_protocol);
   fsp_err_t (* xipEnter)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* xipExit)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* directWrite)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint32_t const bytes, bool const read_after_write);
   fsp_err_t (* directRead)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_dest, uint32_t const bytes);
-  fsp_err_t (* directTransfer)(T_mc80_ospi_instance_ctrl * const p_ctrl, spi_flash_direct_transfer_t * const p_transfer, spi_flash_direct_transfer_dir_t direction);
+  fsp_err_t (* directTransfer)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_direct_transfer * const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
   fsp_err_t (* bankSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint32_t bank);
 } T_mc80_ospi_api;
 
@@ -331,24 +417,24 @@ typedef struct st_mc80_ospi_api
 typedef struct st_mc80_ospi_instance
 {
   T_mc80_ospi_instance_ctrl * p_ctrl;  // Pointer to the control structure
-  spi_flash_cfg_t const *     p_cfg;   // Pointer to the configuration structure
+  T_mc80_ospi_cfg const *     p_cfg;   // Pointer to the configuration structure
   T_mc80_ospi_api const *     p_api;   // Pointer to the API function structure
 } T_mc80_ospi_instance;
 
 /*-----------------------------------------------------------------------------------------------------
   API function declarations
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_cfg_t const* const p_cfg);
+fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_cfg const* const p_cfg);
 fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint32_t const bytes, bool const read_after_write);
 fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const bytes);
-fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_direct_transfer_t* const p_transfer, spi_flash_direct_transfer_dir_t direction);
-fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_protocol_t spi_protocol);
+fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_direct_transfer* const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
+fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_protocol spi_protocol);
 fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint8_t* const p_dest, uint32_t byte_count);
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_device_address, uint32_t byte_count);
-fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl* const p_ctrl, spi_flash_status_t* const p_status);
+fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_status* const p_status);
 fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl* const p_ctrl, uint32_t bank);
 
 #endif  // MC80_OSPI_DRV_H

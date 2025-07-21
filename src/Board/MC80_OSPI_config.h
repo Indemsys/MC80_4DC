@@ -6,7 +6,7 @@
 // External declarations for OSPI configuration structures
 extern const T_mc80_ospi_instance         g_mc80_ospi;
 extern const T_mc80_ospi_api              g_mc80_ospi_api;
-extern const spi_flash_cfg_t              g_OSPI_cfg;
+extern const T_mc80_ospi_cfg              g_OSPI_cfg;
 extern const T_mc80_ospi_extended_cfg     g_OSPI_extended_cfg;
 extern T_mc80_ospi_instance_ctrl          g_OSPI_ctrl;
 

@@ -63,10 +63,10 @@ static T_mc80_ospi_timing_setting g_OSPI_timing_settings = {
 // === Erase Commands Configuration ===
 
 // Erase commands for Standard SPI mode (1S-1S-1S)
-static const spi_flash_erase_command_t g_OSPI_command_set_initial_erase_commands[] = {
+static const T_mc80_ospi_erase_command g_OSPI_command_set_initial_erase_commands[] = {
   { .command = MX25_CMD_SE4B, .size = MX25UM25645G_SECTOR_SIZE },       // 4KB Sector Erase with 4-byte address
   { .command = MX25_CMD_BE4B, .size = MX25UM25645G_BLOCK_SIZE },        // 64KB Block Erase with 4-byte address
-  { .command = MX25_CMD_CE, .size = SPI_FLASH_ERASE_SIZE_CHIP_ERASE },  // Chip Erase
+  { .command = MX25_CMD_CE, .size = MC80_OSPI_ERASE_SIZE_CHIP_ERASE },  // Chip Erase
 };
 
 // Erase table for Standard SPI mode
@@ -76,7 +76,7 @@ const T_mc80_ospi_table g_OSPI_command_set_initial_erase_table = {
 };
 
 // Erase commands for Octal DDR mode (8D-8D-8D) - empty (erase only in SPI mode)
-static const spi_flash_erase_command_t g_OSPI_command_set_high_speed_erase_commands[] = {};
+static const T_mc80_ospi_erase_command g_OSPI_command_set_high_speed_erase_commands[] = {};
 
 // Erase table for Octal DDR mode
 const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table = {
@@ -89,15 +89,15 @@ const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table = {
 const T_mc80_ospi_xspi_command_set g_OSPI_command_set_table[] = {
   {
    // Standard SPI mode (1S-1S-1S) configuration
-   .protocol               = SPI_FLASH_PROTOCOL_1S_1S_1S,              // Standard SPI: command, address and data on single line
+   .protocol               = MC80_OSPI_PROTOCOL_1S_1S_1S,              // Standard SPI: command, address and data on single line
    .frame_format           = MC80_OSPI_FRAME_FORMAT_STANDARD,          // Standard SPI format without extensions
    .latency_mode           = MC80_OSPI_LATENCY_MODE_FIXED,             // Fixed latency (constant dummy cycles)
    .command_bytes          = MC80_OSPI_COMMAND_BYTES_1,                // 1 byte command (standard SPI commands)
-   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                // 4 byte address (for 32MB memory)
+   .address_bytes          = MC80_OSPI_ADDRESS_BYTES_4,                // 4 byte address (for 32MB memory)
    .address_msb_mask       = 0xF0,                                     // Mask for upper 4 bits of address
    .status_needs_address   = false,                                    // Status command does NOT require address
    .status_address         = 0U,                                       // Status address (not used)
-   .status_address_bytes   = (spi_flash_address_bytes_t)0U,            // Status address size (not used)
+   .status_address_bytes   = MC80_OSPI_ADDRESS_BYTES_NONE,             // Status address size (not used)
    .p_erase_commands       = &g_OSPI_command_set_initial_erase_table,  // Erase commands table for SPI
    .read_command           = MX25_CMD_FAST_READ4B,                     // Fast Read with 4-byte address
    .read_dummy_cycles      = 8,                                        // 8 dummy cycles between address and data
@@ -109,15 +109,15 @@ const T_mc80_ospi_xspi_command_set g_OSPI_command_set_table[] = {
   },
   {
    // Octal DDR mode (8D-8D-8D) configuration
-   .protocol               = SPI_FLASH_PROTOCOL_8D_8D_8D,                 // Octal DDR: 8 lines with double data rate
+   .protocol               = MC80_OSPI_PROTOCOL_8D_8D_8D,                 // Octal DDR: 8 lines with double data rate
    .frame_format           = MC80_OSPI_FRAME_FORMAT_XSPI_PROFILE_1,       // Extended XSPI format for high speeds
    .latency_mode           = MC80_OSPI_LATENCY_MODE_FIXED,                // Fixed latency
    .command_bytes          = MC80_OSPI_COMMAND_BYTES_2,                   // 2 byte command (duplicated for DDR)
-   .address_bytes          = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 byte address
+   .address_bytes          = MC80_OSPI_ADDRESS_BYTES_4,                   // 4 byte address
    .address_msb_mask       = 0xF0,                                        // Address upper bits mask
    .status_needs_address   = true,                                        // Status command REQUIRES address in Octal DDR
    .status_address         = 0x00,                                        // Address for status read
-   .status_address_bytes   = SPI_FLASH_ADDRESS_BYTES_4,                   // 4 bytes for status address
+   .status_address_bytes   = MC80_OSPI_ADDRESS_BYTES_4,                   // 4 bytes for status address
    .p_erase_commands       = &g_OSPI_command_set_high_speed_erase_table,  // Empty table (erase only in SPI)
    .read_command           = MX25_OPI_8READ_DTR,                          // Octal DDR Read
    .read_dummy_cycles      = 20,                                          // 20 dummy cycles (critical for 200MHz)
@@ -146,30 +146,15 @@ const T_mc80_ospi_extended_cfg g_OSPI_extended_cfg = {
   .p_lower_lvl_transfer                    = &g_transfer_OSPI,            // DMA transfer instance
 };
 
-// === SPI Flash Configuration ===
-const spi_flash_cfg_t g_OSPI_cfg = {
-  .spi_protocol               = SPI_FLASH_PROTOCOL_1S_1S_1S,     // Starting protocol (Standard SPI)
-  .read_mode                  = SPI_FLASH_READ_MODE_STANDARD,    // Unused by OSPI_B
-  .address_bytes              = SPI_FLASH_ADDRESS_BYTES_4,       // 4-byte addressing for 32MB
-  .dummy_clocks               = SPI_FLASH_DUMMY_CLOCKS_DEFAULT,  // Unused by OSPI_B
-  .page_program_address_lines = (spi_flash_data_lines_t)0U,      // Unused by OSPI_B
+// === MC80 OSPI Configuration ===
+const T_mc80_ospi_cfg g_OSPI_cfg = {
+  .spi_protocol               = MC80_OSPI_PROTOCOL_1S_1S_1S,     // Starting protocol (Standard SPI)
   .page_size_bytes            = MX25UM25645G_PAGE_SIZE,          // Page size for MX25UM25645G
   .write_status_bit           = 0,                               // Status register write protection bit
   .write_enable_bit           = 1,                               // Write enable bit position
-  .page_program_command       = 0,                               // OSPI_B uses command sets
-  .write_enable_command       = 0,                               // OSPI_B uses command sets
-  .status_command             = 0,                               // OSPI_B uses command sets
-  .read_command               = 0,                               // OSPI_B uses command sets
-#if OSPI_B_CFG_XIP_SUPPORT_ENABLE
-  .xip_enter_command = 0,                                        // XIP enter command (handled by driver)
-  .xip_exit_command  = 0,                                        // XIP exit command (handled by driver)
-#else
-  .xip_enter_command = 0U,
-  .xip_exit_command  = 0U,
-#endif
-  .erase_command_list_length = 0U,                               // OSPI_B uses command sets
-  .p_erase_command_list      = NULL,                             // OSPI_B uses command sets
-  .p_extend                  = &g_OSPI_extended_cfg,             // Extended configuration
+  .xip_enter_command          = 0,                               // XIP enter command (handled by driver)
+  .xip_exit_command           = 0,                               // XIP exit command (handled by driver)
+  .p_extend                   = &g_OSPI_extended_cfg,            // Extended configuration
 };
 
 // MC80 OSPI API interface

@@ -32,8 +32,8 @@
 // Number of bytes combined into a single transaction for memory-mapped writes
 #define MC80_OSPI_PRV_COMBINATION_WRITE_LENGTH              (2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U))
 
-// Converts spi_flash_address_bytes_t to a register compatible length value
-#define MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(spi_flash_bytes) ((uint8_t)((spi_flash_bytes) + 1U))
+// Converts T_mc80_ospi_address_bytes to a register compatible length value
+#define MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(mc80_ospi_bytes) ((uint8_t)((mc80_ospi_bytes) + 1U))
 
 #define MC80_OSPI_PRV_BMCTL_DEFAULT_VALUE                   (0x0C)
 
@@ -92,7 +92,7 @@
 static bool                                _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit_pos);
 static fsp_err_t                           _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_ctrl);
 static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
-static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction);
+static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 
 #if MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE
@@ -123,7 +123,7 @@ static uint32_t g_mc80_ospi_channels_open_flags = 0;
     FSP_ERR_ALREADY_OPEN     - Driver has already been opened with the same p_ctrl
     FSP_ERR_CALIBRATE_FAILED - Failed to perform auto-calibrate
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, spi_flash_cfg_t const *const p_cfg)
+fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cfg const *const p_cfg)
 {
   fsp_err_t                             ret             = FSP_SUCCESS;
   const T_mc80_ospi_extended_cfg *const p_cfg_extend    = (T_mc80_ospi_extended_cfg *)(p_cfg->p_extend);
@@ -301,7 +301,7 @@ fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *cons
     FSP_ERR_ASSERTION - A required pointer is NULL
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_direct_transfer_t *const p_transfer, spi_flash_direct_transfer_dir_t direction)
+fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction)
 {
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
@@ -529,8 +529,8 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Erase a block or sector of flash. The byte_count must exactly match one of the erase sizes defined in spi_flash_cfg_t.
-  For chip erase, byte_count must be SPI_FLASH_ERASE_SIZE_CHIP_ERASE.
+  Erase a block or sector of flash. The byte_count must exactly match one of the erase sizes defined in T_mc80_ospi_cfg.
+  For chip erase, byte_count must be MC80_OSPI_ERASE_SIZE_CHIP_ERASE.
 
   Parameters:
     p_ctrl           - Pointer to the control structure
@@ -539,7 +539,7 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
 
   Return:
     FSP_SUCCESS         - The command to erase the flash was executed successfully
-    FSP_ERR_ASSERTION   - p_ctrl or p_device_address is NULL, byte_count doesn't match an erase size defined in spi_flash_cfg_t, or byte_count is set to 0
+    FSP_ERR_ASSERTION   - p_ctrl or p_device_address is NULL, byte_count doesn't match an erase size defined in T_mc80_ospi_cfg, or byte_count is set to 0
     FSP_ERR_NOT_OPEN    - Driver is not opened
     FSP_ERR_DEVICE_BUSY - The device is busy
     FSP_ERR_WRITE_FAILED- Write operation failed
@@ -559,7 +559,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     }
   }
 
-  spi_flash_cfg_t const *p_cfg                  = p_ctrl->p_cfg;
+  T_mc80_ospi_cfg const *p_cfg                  = p_ctrl->p_cfg;
   uint16_t               erase_command          = 0;
   const uint32_t         chip_address_base      = p_ctrl->channel ? MC80_OSPI_DEVICE_1_START_ADDRESS : MC80_OSPI_DEVICE_0_START_ADDRESS;
   uint32_t               chip_address           = (uint32_t)p_device_address - chip_address_base;
@@ -573,7 +573,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   }
 
   // Select the appropriate erase command from the command set
-  spi_flash_erase_command_t const *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
+  T_mc80_ospi_erase_command const *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
   const uint8_t                    erase_list_length = p_cmd_set->p_erase_commands->length;
 
   for (uint32_t index = 0; index < erase_list_length; index++)
@@ -581,7 +581,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     // If requested byte_count is supported by underlying flash, store the command
     if (byte_count == p_erase_list[index].size)
     {
-      if (SPI_FLASH_ERASE_SIZE_CHIP_ERASE == byte_count)
+      if (MC80_OSPI_ERASE_SIZE_CHIP_ERASE == byte_count)
       {
         // Don't send address for chip erase
         send_address = false;
@@ -603,7 +603,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     return err;
   }
 
-  spi_flash_direct_transfer_t direct_command = {
+  T_mc80_ospi_direct_transfer direct_command = {
     .command        = erase_command,
     .command_length = (uint8_t)p_cmd_set->command_bytes,
     .address        = chip_address,
@@ -611,7 +611,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     .data_length    = 0,
   };
 
-  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
   // If prefetch is enabled, make sure the banks aren't being used and flush the prefetch caches after an erase
   if (MC80_OSPI_CFG_PREFETCH_FUNCTION)
@@ -639,7 +639,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     FSP_ERR_ASSERTION - p_ctrl or p_status is NULL
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_status_t *const p_status)
+fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_status *const p_status)
 {
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
@@ -688,7 +688,7 @@ fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t bank)
     FSP_ERR_NOT_OPEN         - Driver is not opened
     FSP_ERR_CALIBRATE_FAILED - Failed to perform auto-calibrate
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flash_protocol_t spi_protocol)
+fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_protocol spi_protocol)
 {
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
@@ -704,7 +704,7 @@ fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, spi_flas
   }
 
   // Save the old protocol in case of an undefined command set
-  spi_flash_protocol_t old_protocol = p_ctrl->spi_protocol;
+  T_mc80_ospi_protocol old_protocol = p_ctrl->spi_protocol;
   p_ctrl->spi_protocol     = spi_protocol;
 
   // Update the SPI protocol and its associated registers
@@ -802,7 +802,7 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
 
   // When using 4-byte addressing, always mask off the most-significant nybble to remove the system bus offset from
   // the transmitted addresses. Ex. CS1 starts at 0x9000_0000 so it needs to mask off bits [31:28]
-  if (p_cmd_set->address_bytes == SPI_FLASH_ADDRESS_BYTES_4)
+  if (p_cmd_set->address_bytes == MC80_OSPI_ADDRESS_BYTES_4)
   {
     cmcfg0 |= MC80_OSPI_PRV_ADDRESS_REPLACE_ENABLE_BITS;
   }
@@ -856,7 +856,7 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit
     return false;
   }
 
-  spi_flash_direct_transfer_t direct_command = {
+  T_mc80_ospi_direct_transfer direct_command = {
     .command        = p_cmd_set->status_command,
     .command_length = (uint8_t)p_cmd_set->command_bytes,
     .address_length = (uint8_t)(p_cmd_set->status_needs_address ? MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->status_address_bytes) : 0U),
@@ -867,12 +867,12 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit
 
   // 8D-8D-8D mode requires an address for any kind of read. If the address wasn't set by the configuration
   // set it to the general address length
-  if ((direct_command.address_length != 0) && (SPI_FLASH_PROTOCOL_8D_8D_8D == p_ctrl->spi_protocol))
+  if ((direct_command.address_length != 0) && (MC80_OSPI_PROTOCOL_8D_8D_8D == p_ctrl->spi_protocol))
   {
     direct_command.address_length = MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->address_bytes);
   }
 
-  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_READ);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
 
   return (direct_command.data >> bit_pos) & 1U;
 }
@@ -897,7 +897,7 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
     return FSP_SUCCESS;
   }
 
-  spi_flash_direct_transfer_t direct_command = {
+  T_mc80_ospi_direct_transfer direct_command = {
     .command        = p_cmd_set->write_enable_command,
     .command_length = (uint8_t)p_cmd_set->command_bytes,
     .address_length = 0,
@@ -906,7 +906,7 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
     .dummy_cycles   = 0,
   };
 
-  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
+  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
   // In case write enable is not checked, assume write is enabled
   bool write_enabled = true;
@@ -941,8 +941,8 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
     void
 -----------------------------------------------------------------------------------------------------*/
 static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl,
-                                       spi_flash_direct_transfer_t *const p_transfer,
-                                       spi_flash_direct_transfer_dir_t    direction)
+                                       T_mc80_ospi_direct_transfer *const p_transfer,
+                                       T_mc80_ospi_direct_transfer_dir    direction)
 {
   R_XSPI0_Type *const             p_reg   = p_ctrl->p_reg;
   const T_mc80_ospi_device_number channel = p_ctrl->channel;
@@ -968,7 +968,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   p_reg->CDBUF[0].CDT = cdtbuf0;
   p_reg->CDBUF[0].CDA = p_transfer->address;
 
-  if (SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE == direction)
+  if (MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE == direction)
   {
     p_reg->CDBUF[0].CDD0 = (uint32_t)(p_transfer->data_u64 & UINT32_MAX);
     if (p_transfer->data_length > sizeof(uint32_t))
@@ -984,7 +984,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
     __NOP(); // Breakpoint for transaction completion wait
   }
 
-  if (SPI_FLASH_DIRECT_TRANSFER_DIR_READ == direction)
+  if (MC80_OSPI_DIRECT_TRANSFER_DIR_READ == direction)
   {
     p_transfer->data_u64 = p_reg->CDBUF[0].CDD0;
     if (p_transfer->data_length > sizeof(uint32_t))
@@ -1124,7 +1124,7 @@ static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl 
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
 {
   R_XSPI0_Type *const    p_reg                = p_ctrl->p_reg;
-  const spi_flash_cfg_t *p_cfg                = p_ctrl->p_cfg;
+  const T_mc80_ospi_cfg *p_cfg                = p_ctrl->p_cfg;
   volatile uint8_t      *p_dummy_read_address = (volatile uint8_t *)((MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel) ? MC80_OSPI_DEVICE_0_START_ADDRESS : MC80_OSPI_DEVICE_1_START_ADDRESS);
   volatile uint8_t       dummy_read           = 0;
 
