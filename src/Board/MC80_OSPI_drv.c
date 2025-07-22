@@ -1709,23 +1709,28 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
     return err;
   }
 
-  // Start DMA transfer
-  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_SINGLE);
+  // Start DMA transfer using SINGLE mode for read operations
+  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
   if (FSP_SUCCESS != err)
   {
     return err;
   }
 
-  // Wait for DMA transfer to complete
+  // Wait for DMA transfer to complete with proper error handling
   volatile transfer_properties_t transfer_properties = { 0U };
-  do
+  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+  while (FSP_SUCCESS == err && transfer_properties.transfer_length_remaining > 0)
   {
     err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
     if (FSP_SUCCESS != err)
     {
       return err;
     }
-  } while (transfer_properties.transfer_length_remaining > 0);
+  }
 
   return FSP_SUCCESS;
 }
