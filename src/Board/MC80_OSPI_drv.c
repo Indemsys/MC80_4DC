@@ -7,6 +7,18 @@
 #include "RA8M1_OSPI.h"  // For register definitions only
 
 /*-----------------------------------------------------------------------------------------------------
+  Static variables for DMA callback support
+-----------------------------------------------------------------------------------------------------*/
+// RTOS event flags for DMA notifications
+static TX_EVENT_FLAGS_GROUP g_ospi_dma_event_flags;
+static bool g_ospi_dma_event_flags_initialized = false;
+
+// DMA event flag definitions
+#define OSPI_DMA_EVENT_TRANSFER_COMPLETE  (0x00000001UL)
+#define OSPI_DMA_EVENT_TRANSFER_ERROR     (0x00000002UL)
+#define OSPI_DMA_EVENT_ALL_EVENTS         (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
+
+/*-----------------------------------------------------------------------------------------------------
   Macro definitions
 -----------------------------------------------------------------------------------------------------*/
 
@@ -91,6 +103,9 @@ static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_i
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
+static void _Ospi_dma_callback(dmac_callback_args_t *p_args);
+static fsp_err_t _Ospi_dma_event_flags_initialize(void);
+static void _Ospi_dma_event_flags_cleanup(void);
 
 /*-----------------------------------------------------------------------------------------------------
   Private global variables
@@ -238,6 +253,9 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
 
   if (FSP_SUCCESS == ret)
   {
+    // Initialize RTOS event flags for DMA synchronization
+    _Ospi_dma_event_flags_initialize();
+
     p_ctrl->open = MC80_OSPI_PRV_OPEN;
     g_mc80_ospi_channels_open_flags |= MC80_OSPI_PRV_CH_MASK(p_cfg_extend);
   }
@@ -970,6 +988,12 @@ fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl *p_ctrl)
   // Close transfer instance
   transfer_instance_t const *p_transfer        = p_cfg_extend->p_lower_lvl_transfer;
   p_transfer->p_api->close(p_transfer->p_ctrl);
+
+  // Cleanup RTOS resources if all channels are being closed
+  if (0 == ((g_mc80_ospi_channels_open_flags & ~MC80_OSPI_PRV_CH_MASK(p_cfg_extend)) & MC80_OSPI_PRV_UNIT_MASK(p_cfg_extend)))
+  {
+    _Ospi_dma_event_flags_cleanup();
+  }
 
   p_ctrl->open = 0U;
   g_mc80_ospi_channels_open_flags &= ~MC80_OSPI_PRV_CH_MASK(p_cfg_extend);
@@ -1709,7 +1733,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
     return err;
   }
 
-  // Start DMA transfer using SINGLE mode for read operations
+  // Start DMA transfer
   err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
   if (FSP_SUCCESS != err)
   {
@@ -1846,4 +1870,176 @@ fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl)
   R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
 
   return FSP_SUCCESS;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  DMA callback function for OSPI operations
+
+  This callback is called when DMA transfer completes and sends RTOS event notifications to
+  wake up waiting tasks. The callback is safe to call from interrupt context as it only
+  sends RTOS notifications.
+
+  Parameters:
+    p_args - Callback arguments (contains only p_context)
+
+  Return:
+    void
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_dma_callback(dmac_callback_args_t *p_args)
+{
+  // Send RTOS event notification if event flags are initialized
+  if (g_ospi_dma_event_flags_initialized)
+  {
+    // Set completion event flag - this will wake up any waiting tasks
+    tx_event_flags_set(&g_ospi_dma_event_flags, OSPI_DMA_EVENT_TRANSFER_COMPLETE, TX_OR);
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Reset DMA transfer status flags
+
+  Parameters:
+    None
+
+  Return:
+    void
+-----------------------------------------------------------------------------------------------------*/
+void Mc80_ospi_dma_transfer_reset_flags(void)
+{
+  // Clear RTOS event flags if initialized
+  if (g_ospi_dma_event_flags_initialized)
+  {
+    tx_event_flags_set(&g_ospi_dma_event_flags, ~OSPI_DMA_EVENT_ALL_EVENTS, TX_AND);
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Initialize RTOS event flags for DMA notifications
+
+  This function must be called after RTOS kernel initialization but before using DMA operations.
+  It creates the event flags group used for task synchronization with DMA completion.
+
+  Parameters:
+    None
+
+  Return:
+    FSP_SUCCESS - Event flags initialized successfully
+    FSP_ERR_INTERNAL - Failed to create event flags group
+-----------------------------------------------------------------------------------------------------*/
+static fsp_err_t _Ospi_dma_event_flags_initialize(void)
+{
+  if (!g_ospi_dma_event_flags_initialized)
+  {
+    UINT tx_result = tx_event_flags_create(&g_ospi_dma_event_flags, "OSPI_DMA_Events");
+    if (TX_SUCCESS == tx_result)
+    {
+      g_ospi_dma_event_flags_initialized = true;
+      return FSP_SUCCESS;
+    }
+    else
+    {
+      return FSP_ERR_INTERNAL;
+    }
+  }
+
+  return FSP_SUCCESS;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Cleanup RTOS resources for OSPI DMA operations
+
+  This internal function cleans up the RTOS event flags group when the driver is closed.
+  It should only be called when no other tasks are using the OSPI driver.
+
+  Parameters:
+    None
+
+  Return:
+    None
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_dma_event_flags_cleanup(void)
+{
+  if (g_ospi_dma_event_flags_initialized)
+  {
+    tx_event_flags_delete(&g_ospi_dma_event_flags);
+    g_ospi_dma_event_flags_initialized = false;
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Get RTOS event flags group for DMA operations
+
+  This function provides access to the event flags group for tasks that need to wait for
+  DMA completion. Tasks can use tx_event_flags_get() to wait for specific events.
+
+  Example usage in task:
+    ULONG actual_flags;
+    UINT result = tx_event_flags_get(&flags_group, OSPI_DMA_EVENT_TRANSFER_COMPLETE,
+                                     TX_OR_CLEAR, &actual_flags, TX_WAIT_FOREVER);
+
+  Parameters:
+    pp_event_flags - Pointer to store the event flags group pointer
+
+  Return:
+    FSP_SUCCESS - Event flags group is available
+    FSP_ERR_NOT_INITIALIZED - Event flags not initialized, call Mc80_ospi_dma_event_flags_initialize() first
+    FSP_ERR_ASSERTION - Invalid parameter
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_dma_get_event_flags(TX_EVENT_FLAGS_GROUP **pp_event_flags)
+{
+  if (NULL == pp_event_flags)
+  {
+    return FSP_ERR_ASSERTION;
+  }
+
+  if (!g_ospi_dma_event_flags_initialized)
+  {
+    return FSP_ERR_NOT_INITIALIZED;
+  }
+
+  *pp_event_flags = &g_ospi_dma_event_flags;
+  return FSP_SUCCESS;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Wait for DMA transfer completion using RTOS event flags
+
+  This function provides a blocking wait for DMA transfer completion using RTOS synchronization.
+  It's more efficient than polling and allows the task to be suspended until the transfer completes.
+
+  Parameters:
+    timeout_ticks - Maximum time to wait in RTOS ticks (TX_WAIT_FOREVER for infinite wait)
+
+  Return:
+    FSP_SUCCESS - Transfer completed successfully
+    FSP_ERR_TIMEOUT - Timeout occurred before transfer completion
+    FSP_ERR_NOT_INITIALIZED - RTOS support not initialized
+    FSP_ERR_INTERNAL - RTOS error occurred
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_dma_wait_for_completion(ULONG timeout_ticks)
+{
+  if (!g_ospi_dma_event_flags_initialized)
+  {
+    return FSP_ERR_NOT_INITIALIZED;
+  }
+
+  ULONG actual_flags;
+  UINT tx_result = tx_event_flags_get(&g_ospi_dma_event_flags,
+                                      OSPI_DMA_EVENT_TRANSFER_COMPLETE,
+                                      TX_OR_CLEAR,
+                                      &actual_flags,
+                                      timeout_ticks);
+
+  if (TX_SUCCESS == tx_result)
+  {
+    return FSP_SUCCESS;
+  }
+  else if (TX_NO_EVENTS == tx_result)
+  {
+    return FSP_ERR_TIMEOUT;
+  }
+  else
+  {
+    return FSP_ERR_INTERNAL;
+  }
 }

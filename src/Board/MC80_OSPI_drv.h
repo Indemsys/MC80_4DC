@@ -478,4 +478,16 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc
 fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes);
 
+// DMA transfer control functions
+void Mc80_ospi_dma_transfer_reset_flags(void);
+
+// RTOS-based DMA synchronization functions (automatically initialized when driver opens)
+fsp_err_t Mc80_ospi_dma_get_event_flags(TX_EVENT_FLAGS_GROUP **pp_event_flags);
+fsp_err_t Mc80_ospi_dma_wait_for_completion(ULONG timeout_ticks);
+
+// DMA event flag constants for task synchronization
+#define OSPI_DMA_EVENT_TRANSFER_COMPLETE  (0x00000001UL)
+#define OSPI_DMA_EVENT_TRANSFER_ERROR     (0x00000002UL)
+#define OSPI_DMA_EVENT_ALL_EVENTS         (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
+
 #endif  // MC80_OSPI_DRV_H
