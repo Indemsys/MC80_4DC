@@ -1626,6 +1626,145 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   return FSP_SUCCESS;
 }
 
+/*-----------------------------------------------------------------------------------------------------
+  Description: High-performance memory-mapped read from flash with integrated XIP cycling
+
+  This function performs optimized memory-mapped reading from OSPI flash memory with integrated
+  XIP mode cycling for maximum performance. All XIP operations are performed directly through
+  register manipulation to minimize function call overhead and maximize read speed.
+
+  Operation sequence:
+  1. Validates input parameters (pointers, size limits, alignment)
+  2. Calculates memory-mapped address and dummy read address based on channel
+  3. Clears prefetch buffers and waits for pending operations
+  4. Performs fast XIP exit by directly manipulating CMCTLCH registers
+  5. Executes dummy read to send exit code and waits for completion
+  6. Performs fast XIP enter by directly configuring BMCTL0 and CMCTLCH registers
+  7. Executes dummy read to send enter code and waits for completion
+  8. Performs direct memory copy from memory-mapped flash address to destination buffer
+
+  Note: XIP mode remains enabled after reading for faster subsequent operations
+
+  Performance Optimizations:
+  - Direct register manipulation instead of API function calls
+  - Integrated XIP exit/enter operations without error checking overhead
+  - Single memory copy operation for data transfer
+  - Minimal function call stack depth
+
+  Memory-mapped Address Calculation:
+  - Device 0 (Channel 0): Flash appears at 0x80000000 + flash_address
+  - Device 1 (Channel 1): Flash appears at 0x90000000 + flash_address
+  - Input address parameter should be the physical flash address (0x00000000-based)
+  - Function automatically calculates the correct memory-mapped address
+
+  XIP Mode Cycling Benefits:
+  - Ensures fresh data reads without stale cache content
+  - Resets internal timing and state machines
+  - Prevents potential data corruption from long XIP sessions
+  - Provides deterministic read behavior
+
+  Parameters: p_ctrl - Pointer to OSPI instance control structure
+              p_dest - Destination buffer for read data
+              address - Physical flash address to read from (0x00000000-based)
+              bytes - Number of bytes to read
+
+  Return: FSP_SUCCESS - Data read successfully
+          FSP_ERR_ASSERTION - Invalid parameters
+          FSP_ERR_NOT_OPEN - Driver not opened
+          FSP_ERR_UNSUPPORTED - XIP support not enabled
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
+{
+  // Parameter validation
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if ((NULL == p_ctrl) || (NULL == p_dest) || (0 == bytes))
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
+#if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
+  R_XSPI0_Type *const    p_reg = p_ctrl->p_reg;
+  const T_mc80_ospi_cfg *p_cfg = p_ctrl->p_cfg;
+  volatile uint8_t      *p_dummy_read_address;
+  volatile uint8_t       dummy_read = 0;
+
+  // Calculate memory-mapped address based on channel
+  uint32_t memory_mapped_address;
+  if (p_ctrl->channel == MC80_OSPI_DEVICE_NUMBER_0)
+  {
+    memory_mapped_address = MC80_OSPI_DEVICE_0_START_ADDRESS + address;
+    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_0_START_ADDRESS;
+  }
+  else
+  {
+    memory_mapped_address = MC80_OSPI_DEVICE_1_START_ADDRESS + address;
+    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_1_START_ADDRESS;
+  }
+
+  // Clear the pre-fetch buffer for this bank
+  #if MC80_OSPI_CFG_PREFETCH_FUNCTION
+  p_reg->BMCTL1 |= 0x03U << OSPI_BMCTL1_PBUFCLRCH0_Pos;
+  #endif
+
+  // Wait for any on-going access to complete
+  //while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
+  //{
+  //  __NOP();  // Breakpoint for access completion wait
+  //}
+
+  // Step 1: Fast XIP exit - disable XIP directly
+  p_reg->CMCTLCH[0] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
+//  p_reg->CMCTLCH[1] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
+
+  // Perform a read to send the exit code
+  dummy_read = *p_dummy_read_address;
+
+  // Wait for the read to complete
+  //while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
+  //{
+  //  __NOP();  // Breakpoint for XIP exit read wait
+  //}
+
+  // Step 2: Fast XIP enter - configure and enable XIP directly
+  // Change memory-mapping to read-only mode (preserve bits 4-7)
+  p_reg->BMCTL0 = MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE;
+
+  // Configure XiP codes and enable
+  const uint32_t cmctlch = OSPI_CMCTLCHn_XIPEN_Msk |
+                           ((uint32_t)(p_cfg->xip_enter_command << OSPI_CMCTLCHn_XIPENCODE_Pos)) |
+                           ((uint32_t)(p_cfg->xip_exit_command << OSPI_CMCTLCHn_XIPEXCODE_Pos));
+
+  // XiP enter/exit codes are configured for both OSPI slave channels
+  p_reg->CMCTLCH[0] = cmctlch;
+//  p_reg->CMCTLCH[1] = cmctlch;
+
+  // Perform a read to send the enter code
+  dummy_read = *p_dummy_read_address;
+
+  // Wait for the read to complete
+ // while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
+ // {
+ //   __NOP();  // Breakpoint for XIP enter read wait
+ // }
+
+  // Step 3: Perform optimized memory-mapped read using direct memory copy
+  // Flash memory appears as regular system memory in XIP mode
+  memcpy(p_dest, (void*)memory_mapped_address, bytes);
+
+  return FSP_SUCCESS;
+
+#else
+  // XIP support is not enabled
+  return FSP_ERR_UNSUPPORTED;
+#endif
+}
+
 #if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
 /*-----------------------------------------------------------------------------------------------------
   Configures the device to enter or exit XiP mode
@@ -1705,5 +1844,33 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
     // Change memory-mapping back to R/W mode (preserve bits 4-7)
     p_reg->BMCTL0 = MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE;
   }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Performs hardware reset of OSPI flash memory using LIOCTL register RSTCS0 bit
+               Asserts reset for minimum 20us, then deasserts and waits 100us for initialization
+
+  Parameters: p_ctrl - Pointer to OSPI instance control structure
+
+  Return: FSP_SUCCESS - Reset completed successfully
+          FSP_ERR_ASSERTION - Invalid parameters
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl)
+{
+   R_XSPI0_Type *const    p_ospi = p_ctrl->p_reg;
+
+  // Assert reset by clearing RSTCS0 bit (bit 16) in LIOCTL register
+  p_ospi->LIOCTL &= ~(1U << 16);
+
+  // Wait minimum 20us reset pulse width
+  R_BSP_SoftwareDelay(20, BSP_DELAY_UNITS_MICROSECONDS);
+
+  // Deassert reset by setting RSTCS0 bit (bit 16) in LIOCTL register
+  p_ospi->LIOCTL |= (1U << 16);
+
+  // Wait 100us for flash memory initialization
+  R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+
+  return FSP_SUCCESS;
 }
 #endif

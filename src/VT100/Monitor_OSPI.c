@@ -20,6 +20,7 @@ void OSPI_test_erase(uint8_t keycode);
 void OSPI_test_sector(uint8_t keycode);
 void OSPI_test_8d_calibration(uint8_t keycode);
 void OSPI_write_preamble_patterns(uint8_t keycode);
+void OSPI_test_memory_mapped_read(uint8_t keycode);
 
 // Internal helper functions
 static fsp_err_t _Ospi_ensure_driver_open(void);
@@ -32,6 +33,7 @@ const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '5', OSPI_test_sector, 0 },
   { '6', OSPI_test_8d_calibration, 0 },
   { '7', OSPI_write_preamble_patterns, 0 },
+  { '8', OSPI_test_memory_mapped_read, 0 },
   { 'R', 0, 0 },
   { 0 }
 };
@@ -46,6 +48,7 @@ const T_VT100_Menu MENU_OSPI = {
   "\033[5C <5> - Full sector test\r\n"
   "\033[5C <6> - 8D-8D-8D protocol & calibration test\r\n"
   "\033[5C <7> - Write preamble patterns for calibration\r\n"
+  "\033[5C <8> - Memory-mapped read performance test\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
@@ -565,7 +568,6 @@ void OSPI_test_erase(uint8_t keycode)
       err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
-        RTT_printf(0, "  XIP enter failed: 0x%x\r\n", err);
         App_free(read_buffer);
         return;
       }
@@ -577,7 +579,7 @@ void OSPI_test_erase(uint8_t keycode)
       err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
       if (err != FSP_SUCCESS)
       {
-        RTT_printf(0, "  XIP exit failed: 0x%x\r\n", err);
+        // XIP exit failed - continue anyway
       }
 
       err = FSP_SUCCESS;  // Set success for the following check
@@ -1417,17 +1419,44 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
 
   if (err == FSP_SUCCESS)
   {
-    RTT_printf(0, "OSPI driver opened successfully\r\n");
+    // Perform hardware reset of OSPI flash memory to ensure known state
+    err = Mc80_ospi_hardware_reset(g_mc80_ospi.p_ctrl);
+    if (err != FSP_SUCCESS)
+    {
+      return err;
+    }
+
+    // After hardware reset, flash memory is in Standard SPI mode (1S-1S-1S)
+    // Set driver protocol to match the flash device state
+    err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+    if (err != FSP_SUCCESS)
+    {
+      return err;
+    }
+
     return FSP_SUCCESS;
   }
   else if (err == FSP_ERR_ALREADY_OPEN)
   {
-    // Driver was already open - this is good
+    // Driver was already open - perform reset to ensure known state
+    err = Mc80_ospi_hardware_reset(g_mc80_ospi.p_ctrl);
+    if (err != FSP_SUCCESS)
+    {
+      return err;
+    }
+
+    // After hardware reset, flash memory is in Standard SPI mode (1S-1S-1S)
+    // Set driver protocol to match the flash device state
+    err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+    if (err != FSP_SUCCESS)
+    {
+      return err;
+    }
+
     return FSP_SUCCESS;
   }
   else
   {
-    RTT_printf(0, "OSPI driver open failed: 0x%x\r\n", err);
     return err;
   }
 }
@@ -1638,6 +1667,178 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
   {
     MPRINTF("Preamble Patterns Write        : FAILED (error: 0x%X)\n\r", err);
   }
+
+  MPRINTF("\n\rPress any key to continue...\n\r");
+  uint8_t dummy_key;
+  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Test memory-mapped read function by reading and displaying first 256 bytes from flash
+
+  Parameters: keycode - Input key code from VT100 terminal
+
+  Return:
+-----------------------------------------------------------------------------------------------------*/
+void OSPI_test_memory_mapped_read(uint8_t keycode)
+{
+  GET_MCBL;
+  MPRINTF(VT100_CLEAR_AND_HOME);
+  MPRINTF(" ===== Memory-Mapped Read Test =====\n\r");
+
+  // Ensure OSPI driver is open
+  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  if (init_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Allocate buffers for three reads (256 bytes each)
+  uint8_t *read_buffer1 = (uint8_t *)App_malloc(256);
+  uint8_t *read_buffer2 = (uint8_t *)App_malloc(256);
+  uint8_t *read_buffer3 = (uint8_t *)App_malloc(256);
+
+  if (read_buffer1 == NULL || read_buffer2 == NULL || read_buffer3 == NULL)
+  {
+    MPRINTF("ERROR: Failed to allocate read buffers\n\r");
+    if (read_buffer1) App_free(read_buffer1);
+    if (read_buffer2) App_free(read_buffer2);
+    if (read_buffer3) App_free(read_buffer3);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Clear buffers before reading
+  memset(read_buffer1, 0x00, 256);
+  memset(read_buffer2, 0x00, 256);
+  memset(read_buffer3, 0x00, 256);
+
+  MPRINTF("Reading first 256 bytes from flash address 0x00000000...\n\r");
+
+  // Perform first memory-mapped read
+  fsp_err_t err1 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer1, 0x00000000, 256);
+
+  if (err1 != FSP_SUCCESS)
+  {
+    MPRINTF("First memory-mapped read      : FAILED (error: 0x%X)\n\r", err1);
+    App_free(read_buffer1);
+    App_free(read_buffer2);
+    App_free(read_buffer3);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  MPRINTF("First read                    : SUCCESS\n\r");
+
+  // Perform second memory-mapped read for comparison
+  fsp_err_t err2 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer2, 0x00000000, 256);
+
+  if (err2 != FSP_SUCCESS)
+  {
+    MPRINTF("Second memory-mapped read     : FAILED (error: 0x%X)\n\r", err2);
+    App_free(read_buffer1);
+    App_free(read_buffer2);
+    App_free(read_buffer3);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  MPRINTF("Second read                   : SUCCESS\n\r");
+
+  // Perform third memory-mapped read for comparison
+  fsp_err_t err3 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer3, 0x00000000, 256);
+
+  if (err3 != FSP_SUCCESS)
+  {
+    MPRINTF("Third memory-mapped read      : FAILED (error: 0x%X)\n\r", err3);
+    App_free(read_buffer1);
+    App_free(read_buffer2);
+    App_free(read_buffer3);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  MPRINTF("Third read                    : SUCCESS\n\r");
+
+  // Compare all three reads
+  bool reads_match = true;
+  for (uint32_t i = 0; i < 256; i++)
+  {
+    if (read_buffer1[i] != read_buffer2[i] || read_buffer1[i] != read_buffer3[i])
+    {
+      reads_match = false;
+      break;
+    }
+  }
+
+  if (reads_match)
+  {
+    MPRINTF("Data consistency check        : OK (all three reads match)\n\r");
+  }
+  else
+  {
+    MPRINTF("Data consistency check        : PROBLEM (reads do not match)\n\r");
+  }
+
+  MPRINTF("\n\rData read from flash:\n\r");
+
+  // Display data in hex format (16 bytes per line) from first read
+  for (uint32_t i = 0; i < 256; i += 16)
+  {
+    // Print address
+    MPRINTF("0x%08X: ", i);
+
+    // Print hex values
+    for (uint32_t j = 0; j < 16; j++)
+    {
+      if (i + j < 256)
+      {
+        MPRINTF("%02X ", read_buffer1[i + j]);
+      }
+      else
+      {
+        MPRINTF("   ");
+      }
+    }
+
+    MPRINTF(" | ");
+
+    // Print ASCII representation
+    for (uint32_t j = 0; j < 16; j++)
+    {
+      if (i + j < 256)
+      {
+        uint8_t byte_val = read_buffer1[i + j];
+        if (byte_val >= 32 && byte_val <= 126)  // Printable ASCII
+        {
+          MPRINTF("%c", byte_val);
+        }
+        else
+        {
+          MPRINTF(".");
+        }
+      }
+    }
+
+    MPRINTF("\n\r");
+  }
+
+  // Free allocated buffers
+  App_free(read_buffer1);
+  App_free(read_buffer2);
+  App_free(read_buffer3);
 
   MPRINTF("\n\rPress any key to continue...\n\r");
   uint8_t dummy_key;
