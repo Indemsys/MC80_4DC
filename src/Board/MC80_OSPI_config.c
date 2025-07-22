@@ -57,61 +57,36 @@ const transfer_instance_t g_transfer_OSPI = {
 // Control instance for MC80 OSPI
 T_mc80_ospi_instance_ctrl g_OSPI_ctrl;
 
-// OSPI timing settings configuration
-// This structure defines critical timing parameters for OSPI interface operation at high frequencies.
-// Used by Mc80_ospi_open() function during initialization to configure RA8M1 OSPI peripheral registers.
-// Applied to both Standard SPI (1S-1S-1S) and Octal DDR (8D-8D-8D) protocols.
-// Referenced through g_OSPI_extended_cfg.p_timing_settings in the extended configuration.
-// These settings ensure signal integrity and reliable data transfer at frequencies up to 200MHz.
+// OSPI timing settings
 static T_mc80_ospi_timing_setting g_OSPI_timing_settings = {
-  .command_to_command_interval = MC80_OSPI_COMMAND_INTERVAL_CLOCKS_2,            // Minimum 2 clock delay between consecutive commands for flash recovery
-  .cs_pullup_lag               = MC80_OSPI_COMMAND_CS_PULLUP_CLOCKS_NO_EXTENSION, // CS signal timing after command completion (no additional delay)
-  .cs_pulldown_lead            = MC80_OSPI_COMMAND_CS_PULLDOWN_CLOCKS_NO_EXTENSION, // CS signal timing before command start (no additional delay)
-  .sdr_drive_timing            = MC80_OSPI_SDR_DRIVE_TIMING_BEFORE_CK,           // SDR mode: drive data before clock edge for setup time
-  .sdr_sampling_edge           = MC80_OSPI_CK_EDGE_FALLING,                      // SDR mode: sample data on falling clock edge
-  .sdr_sampling_delay          = MC80_OSPI_SDR_SAMPLING_DELAY_NONE,              // SDR mode: no additional sampling delay (optimized for MX25UM25645G)
-  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_NONE,          // DDR mode: no sampling window extension (auto-calibration handles timing)
+  .command_to_command_interval = MC80_OSPI_COMMAND_INTERVAL_CLOCKS_2,
+  .cs_pullup_lag               = MC80_OSPI_COMMAND_CS_PULLUP_CLOCKS_NO_EXTENSION,
+  .cs_pulldown_lead            = MC80_OSPI_COMMAND_CS_PULLDOWN_CLOCKS_NO_EXTENSION,
+  .sdr_drive_timing            = MC80_OSPI_SDR_DRIVE_TIMING_BEFORE_CK,
+  .sdr_sampling_edge           = MC80_OSPI_CK_EDGE_FALLING,
+  .sdr_sampling_delay          = MC80_OSPI_SDR_SAMPLING_DELAY_NONE,
+  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_NONE,
 };
 
 // === Erase Commands Configuration ===
 
-// Erase commands table for Standard SPI mode (1S-1S-1S)
-// This table defines the available erase operations for MX25UM25645G flash memory in Standard SPI mode.
-// Used by Mc80_ospi_erase() function to determine the appropriate erase command based on requested size.
-// Referenced through g_OSPI_command_set_initial_erase_table in the Standard SPI protocol configuration.
-// Applied only during Standard SPI mode operation - erase operations are not supported in Octal DDR mode.
-// The driver automatically selects the most efficient erase command based on the size parameter in erase requests.
+// Erase commands for Standard SPI mode (1S-1S-1S)
 static const T_mc80_ospi_erase_command g_OSPI_command_set_initial_erase_commands[] = {
-  { .command = MX25_CMD_SE4B, .size = MX25UM25645G_SECTOR_SIZE },       // 4KB Sector Erase (0x21): minimum erase unit, used for small data updates
-  { .command = MX25_CMD_BE4B, .size = MX25UM25645G_BLOCK_SIZE },        // 64KB Block Erase (0xDC): efficient for larger data regions
-  { .command = MX25_CMD_CE, .size = MC80_OSPI_ERASE_SIZE_CHIP_ERASE },  // Chip Erase (0x60): erases entire flash memory (256Mbit)
+  { .command = MX25_CMD_SE4B, .size = MX25UM25645G_SECTOR_SIZE },       // 4KB Sector Erase with 4-byte address
+  { .command = MX25_CMD_BE4B, .size = MX25UM25645G_BLOCK_SIZE },        // 64KB Block Erase with 4-byte address
+  { .command = MX25_CMD_CE, .size = MC80_OSPI_ERASE_SIZE_CHIP_ERASE },  // Chip Erase
 };
 
-// Erase table wrapper for Standard SPI mode (1S-1S-1S)
-// This table structure wraps the erase commands array for use by the OSPI driver framework.
-// Referenced by the Standard SPI protocol configuration in g_OSPI_command_set_table[0].p_erase_commands.
-// Used by _Mc80_ospi_command_set_get() to access erase commands when operating in Standard SPI mode.
-// Provides the driver with both the command array pointer and the number of available erase operations.
-// Essential for proper erase operation selection and validation in Mc80_ospi_erase() function.
+// Erase table for Standard SPI mode
 const T_mc80_ospi_table g_OSPI_command_set_initial_erase_table = {
   .p_table = (void *)g_OSPI_command_set_initial_erase_commands,
   .length  = sizeof(g_OSPI_command_set_initial_erase_commands) / sizeof(g_OSPI_command_set_initial_erase_commands[0]),
 };
 
-// Empty erase commands array for Octal DDR mode (8D-8D-8D)
-// This intentionally empty array reflects the hardware limitation that MX25UM25645G does not support erase operations in Octal DDR mode.
-// Used to maintain consistent driver structure while preventing erase attempts in high-speed mode.
-// Referenced through g_OSPI_command_set_high_speed_erase_table in the Octal DDR protocol configuration.
-// When operating in Octal DDR mode, the driver must switch to Standard SPI mode to perform erase operations.
-// This design ensures that all erase operations are performed safely at lower frequencies with proper command protocols.
+// Erase commands for Octal DDR mode (8D-8D-8D) - empty (erase only in SPI mode)
 static const T_mc80_ospi_erase_command g_OSPI_command_set_high_speed_erase_commands[] = {};
 
-// Empty erase table wrapper for Octal DDR mode (8D-8D-8D)
-// This table structure wraps the empty erase commands array to maintain driver framework consistency.
-// Referenced by the Octal DDR protocol configuration in g_OSPI_command_set_table[1].p_erase_commands.
-// Ensures that erase operation requests in Octal DDR mode are properly handled by returning no available commands.
-// Forces the application layer to switch to Standard SPI mode before attempting erase operations.
-// Maintains type safety and prevents null pointer access while clearly indicating erase limitation in high-speed mode.
+// Erase table for Octal DDR mode
 const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table                     = {
                       .p_table = (void *)g_OSPI_command_set_high_speed_erase_commands,
                       .length  = sizeof(g_OSPI_command_set_high_speed_erase_commands) / sizeof(g_OSPI_command_set_high_speed_erase_commands[0]),
@@ -122,11 +97,10 @@ const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table               
 // Main command set table containing protocol-specific configurations for different SPI modes.
 // Used by _Mc80_ospi_command_set_get() to find matching command set for current protocol.
 // Referenced through g_OSPI_command_set.p_table in Mc80_ospi_spi_protocol_set() function.
-// Contains two configurations supported by MX25UM25645G chip: Standard SPI (1S-1S-1S) for initialization and Octal DDR (8D-8D-8D) for high-speed operation.
-// Note: MX25UM25645G does not support intermediate protocols like Quad SPI (4S-4S-4S) or Octal STR (8S-8S-8S).
+// Contains two configurations: Standard SPI (1S-1S-1S) for initialization and Octal DDR (8D-8D-8D) for high-speed operation.
 const T_mc80_ospi_xspi_command_set g_OSPI_command_set_table[] = {
   {
-   // Standard SPI mode (1S-1S-1S) configuration - supported by MX25UM25645G
+   // Standard SPI mode (1S-1S-1S) configuration
    .protocol             = MC80_OSPI_PROTOCOL_1S_1S_1S,              // Standard SPI: command, address and data on single line
    .frame_format         = MC80_OSPI_FRAME_FORMAT_STANDARD,          // Standard SPI format without extensions
    .latency_mode         = MC80_OSPI_LATENCY_MODE_FIXED,             // Fixed latency (constant dummy cycles)
@@ -146,7 +120,7 @@ const T_mc80_ospi_xspi_command_set g_OSPI_command_set_table[] = {
    .status_dummy_cycles  = 0,                                        // No dummy cycles for status
   },
   {
-   // Octal DDR mode (8D-8D-8D) configuration - supported by MX25UM25645G
+   // Octal DDR mode (8D-8D-8D) configuration
    .protocol             = MC80_OSPI_PROTOCOL_8D_8D_8D,                 // Octal DDR: 8 lines with double data rate
    .frame_format         = MC80_OSPI_FRAME_FORMAT_XSPI_PROFILE_1,       // Extended XSPI format for high speeds
    .latency_mode         = MC80_OSPI_LATENCY_MODE_FIXED,                // Fixed latency
