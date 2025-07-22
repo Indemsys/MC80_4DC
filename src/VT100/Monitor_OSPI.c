@@ -944,6 +944,145 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     return;
   }
 
+  // Configure flash to OPI DTR mode before testing 8D-8D-8D
+  MPRINTF("\n\rConfiguring flash for OPI DTR mode...\n\r");
+
+  // First, switch back to 1S-1S-1S to send the configuration command
+  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("1S-1S-1S Protocol Restored     : SUCCESS\n\r");
+  }
+  else
+  {
+    MPRINTF("1S-1S-1S Protocol Restored     : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Read CR2 before making changes to see current state
+  MPRINTF("\n\rReading current CR2 value...\n\r");
+  T_mc80_ospi_direct_transfer read_cr2_initial_cmd = {
+    .command        = MX25_CMD_RDCR2,
+    .command_length = 1,
+    .address_length = 4,
+    .address        = 0x00000000,
+    .data_length    = 1,
+    .dummy_cycles   = 0,
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_initial_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+  if (err == FSP_SUCCESS)
+  {
+    uint8_t cr2_initial = (uint8_t)(read_cr2_initial_cmd.data & 0xFF);
+    MPRINTF("CR2 Initial Value              : 0x%02X\n\r", cr2_initial);
+    if (cr2_initial == 0x00)
+    {
+      MPRINTF("Flash is currently in SPI mode\n\r");
+    }
+    else if (cr2_initial == 0x02)
+    {
+      MPRINTF("Flash is already in OPI DTR mode\n\r");
+    }
+    else
+    {
+      MPRINTF("Flash is in unknown mode\n\r");
+    }
+  }
+  else
+  {
+    MPRINTF("CR2 Initial Read               : FAILED (error: 0x%X)\n\r", err);
+  }
+
+  // Write Enable for CR2 configuration
+  T_mc80_ospi_direct_transfer write_enable_cmd = {
+    .command        = MX25_CMD_WREN,
+    .command_length = 1,
+    .address_length = 0,
+    .address        = 0,
+    .data_length    = 0,
+    .dummy_cycles   = 0,
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("Write Enable for CR2           : SUCCESS\n\r");
+  }
+  else
+  {
+    MPRINTF("Write Enable for CR2           : FAILED (error: 0x%X)\n\r", err);
+  }
+
+  // Write CR2 to enable OPI DTR mode (value 0x02)
+  T_mc80_ospi_direct_transfer write_cr2_cmd = {
+    .command        = MX25_CMD_WRCR2,
+    .command_length = 1,
+    .address_length = 4,  // 4-byte address required for CR2
+    .address        = 0x00000000,  // CR2 address
+    .data_length    = 1,
+    .data           = 0x02,  // Enable OPI DTR mode
+    .dummy_cycles   = 0,
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("CR2 Write (OPI DTR Enable)     : SUCCESS\n\r");
+
+    // Wait for write completion
+    R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+
+    // Try to read back CR2 with SPI command (may fail if chip switched to OPI)
+    T_mc80_ospi_direct_transfer read_cr2_cmd = {
+      .command        = MX25_CMD_RDCR2,
+      .command_length = 1,
+      .address_length = 4,  // 4-byte address required for RDCR2
+      .address        = 0x00000000,  // CR2 register address
+      .data_length    = 1,
+      .dummy_cycles   = 0,  // 0 dummy cycles for SPI mode RDCR2
+    };
+
+    err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+    if (err == FSP_SUCCESS)
+    {
+      uint8_t cr2_value = (uint8_t)(read_cr2_cmd.data & 0xFF);
+      MPRINTF("CR2 Read Back (SPI)            : SUCCESS (value: 0x%02X)\n\r", cr2_value);
+
+      if (cr2_value == 0x02)
+      {
+        MPRINTF("CR2 Verification               : PASS (OPI DTR enabled)\n\r");
+      }
+      else
+      {
+        MPRINTF("CR2 Verification               : FAIL (expected 0x02, got 0x%02X)\n\r", cr2_value);
+      }
+    }
+    else
+    {
+      MPRINTF("CR2 Read Back (SPI)            : FAILED (error: 0x%X)\n\r", err);
+      MPRINTF("This likely means flash switched to OPI mode immediately\n\r");
+    }
+
+    // Now switch back to 8D-8D-8D protocol (flash should be in OPI DTR mode)
+    err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
+    if (err == FSP_SUCCESS)
+    {
+      MPRINTF("8D-8D-8D Protocol Re-enabled   : SUCCESS\n\r");
+    }
+    else
+    {
+      MPRINTF("8D-8D-8D Protocol Re-enabled   : FAILED (error: 0x%X)\n\r", err);
+    }
+  }
+  else
+  {
+    MPRINTF("CR2 Write (OPI DTR Enable)     : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("Flash may not support OPI DTR mode switch\n\r");
+  }
+
   // Test 8D-8D-8D read before calibration
   MPRINTF("\n\rTesting 8D-8D-8D read before calibration...\n\r");
   uint8_t test_read_buffer[16];
@@ -1157,6 +1296,90 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   else
   {
     MPRINTF("XIP Exit                       : FAILED (error: 0x%X)\n\r", err);
+  }
+
+  // Restore flash to SPI mode (CR2 = 0x00)
+  MPRINTF("\n\rRestoring flash to SPI mode...\n\r");
+
+  // Switch to 1S-1S-1S protocol to send configuration commands
+  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
+
+    // Write Enable for CR2 restoration
+    T_mc80_ospi_direct_transfer write_enable_cmd = {
+      .command        = MX25_CMD_WREN,
+      .command_length = 1,
+      .address_length = 0,
+      .address        = 0,
+      .data_length    = 0,
+      .dummy_cycles   = 0,
+    };
+
+    err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+    if (err == FSP_SUCCESS)
+    {
+      // Write CR2 to restore SPI mode (value 0x00)
+      T_mc80_ospi_direct_transfer restore_cr2_cmd = {
+        .command        = MX25_CMD_WRCR2,
+        .command_length = 1,
+        .address_length = 4,
+        .address        = 0x00000000,
+        .data_length    = 1,
+        .data           = 0x00,  // Restore SPI mode
+        .dummy_cycles   = 0,
+      };
+
+      err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &restore_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+      if (err == FSP_SUCCESS)
+      {
+        MPRINTF("CR2 Restore (SPI Mode)         : SUCCESS\n\r");
+        R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+
+        // Read back CR2 to verify the restore
+        T_mc80_ospi_direct_transfer read_cr2_restore_cmd = {
+          .command        = MX25_CMD_RDCR2,
+          .command_length = 1,
+          .address_length = 4,  // 4-byte address required for RDCR2
+          .address        = 0x00000000,  // CR2 register address
+          .data_length    = 1,
+          .dummy_cycles   = 0,  // 0 dummy cycles for SPI mode RDCR2
+        };
+
+        err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_restore_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+        if (err == FSP_SUCCESS)
+        {
+          uint8_t cr2_restore_value = (uint8_t)(read_cr2_restore_cmd.data & 0xFF);
+          MPRINTF("CR2 Restore Read Back          : SUCCESS (value: 0x%02X)\n\r", cr2_restore_value);
+
+          if (cr2_restore_value == 0x00)
+          {
+            MPRINTF("CR2 Restore Verification       : PASS (SPI mode restored)\n\r");
+          }
+          else
+          {
+            MPRINTF("CR2 Restore Verification       : FAIL (expected 0x00, got 0x%02X)\n\r", cr2_restore_value);
+          }
+        }
+        else
+        {
+          MPRINTF("CR2 Restore Read Back          : FAILED (error: 0x%X)\n\r", err);
+        }
+      }
+      else
+      {
+        MPRINTF("CR2 Restore (SPI Mode)         : FAILED (error: 0x%X)\n\r", err);
+      }
+    }
+    else
+    {
+      MPRINTF("Write Enable for CR2 Restore   : FAILED (error: 0x%X)\n\r", err);
+    }
+  }
+  else
+  {
+    MPRINTF("1S-1S-1S Protocol Set          : FAILED (error: 0x%X)\n\r", err);
   }
 
   // Test summary
