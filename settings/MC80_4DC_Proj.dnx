@@ -40,8 +40,8 @@
         <MultiCoreRunAll>1</MultiCoreRunAll>
     </Simulator>
     <PlDriver>
-        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
         <FirstRun>0</FirstRun>
+        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
     </PlDriver>
     <JLinkDriver>
         <LeaveTargetRunning>_ 0</LeaveTargetRunning>
@@ -58,11 +58,11 @@
         <Checksum>2332564380</Checksum>
     </DebugChecksum>
     <InterruptStripe>
-        <Title0>USBFS_FIFO_0</Title0>
+        <Title0>DMAC1_INT</Title0>
         <Setup0>3 1 3 0 1 0 0 0 0</Setup0>
-        <Title1>DMAC1_INT</Title1>
+        <Title1>USBFS_FIFO_1</Title1>
         <Setup1>3 1 3 0 1 0 0 0 0</Setup1>
-        <Title2>USBFS_FIFO_1</Title2>
+        <Title2>USBFS_FIFO_0</Title2>
         <Setup2>3 1 3 0 1 0 0 0 0</Setup2>
         <Title3>USBFS_RESUME</Title3>
         <Setup3>3 1 3 0 1 0 0 0 0</Setup3>
@@ -198,9 +198,7 @@
         <mode>0</mode>
     </DisassembleMode>
     <Breakpoints2>
-        <Bp0>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\VT100\Monitor_OSPI.c}.128.24" 0 0 1 "" 0 "" 0</Bp0>
-        <Bp1>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\VT100\Monitor_OSPI.c}.218.24" 0 0 1 "" 0 "" 0</Bp1>
-        <Count>2</Count>
+        <Count>0</Count>
     </Breakpoints2>
     <DriverProfiling>
         <Enabled>0</Enabled>

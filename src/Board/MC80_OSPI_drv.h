@@ -10,7 +10,7 @@
 #define MC80_OSPI_CFG_PARAM_CHECKING_ENABLE          (1)
 #define MC80_OSPI_CFG_DMAC_SUPPORT_ENABLE            (1)
 #define MC80_OSPI_CFG_XIP_SUPPORT_ENABLE             (1)
-#define MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE (0)
+#define MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE (1)
 #define MC80_OSPI_CFG_PREFETCH_FUNCTION              (1)
 #define MC80_OSPI_CFG_COMBINATION_FUNCTION           MC80_OSPI_COMBINATION_FUNCTION_64BYTE
 #define MC80_OSPI_CFG_DOTF_SUPPORT_ENABLE            (0)
@@ -436,5 +436,6 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_device_address, uint32_t byte_count);
 fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_status* const p_status);
 fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl* const p_ctrl, uint32_t bank);
+fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl* const p_ctrl);
 
 #endif  // MC80_OSPI_DRV_H

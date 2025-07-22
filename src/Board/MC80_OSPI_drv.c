@@ -23,9 +23,6 @@
 // Individual bit mask for a single channel on a given OSPI unit
 #define MC80_OSPI_PRV_CH_MASK(p_ext_cfg)                    ((1U << ((p_ext_cfg)->channel)) << (((p_ext_cfg)->ospi_unit) * MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT))
 
-// Gets the extended configuration struct for this instance
-#define MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl)                  ((T_mc80_ospi_extended_cfg *)((T_mc80_ospi_instance_ctrl *)(p_ctrl))->p_cfg->p_extend)
-
 // Indicates the provided protocol mode requires the Data-Strobe signal
 #define MC80_OSPI_PRV_PROTOCOL_USES_DS_SIGNAL(protocol)     ((bool)(((uint32_t)(protocol)) & 0x200UL))
 
@@ -97,10 +94,6 @@ static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_i
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 
-#if MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE
-static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_ctrl);
-#endif
-
 #if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
 #endif
@@ -127,8 +120,8 @@ static uint32_t g_mc80_ospi_channels_open_flags = 0;
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cfg const *const p_cfg)
 {
-  fsp_err_t                             ret             = FSP_SUCCESS;
-  const T_mc80_ospi_extended_cfg *const p_cfg_extend    = (T_mc80_ospi_extended_cfg *)(p_cfg->p_extend);
+  fsp_err_t                             ret          = FSP_SUCCESS;
+  const T_mc80_ospi_extended_cfg *const p_cfg_extend = p_cfg->p_extend;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -157,11 +150,11 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
   R_BSP_MODULE_START(FSP_IP_OSPI, p_cfg_extend->ospi_unit);
 
   // Initialize control block
-  p_ctrl->p_cfg                = p_cfg;
-  p_ctrl->p_reg                = p_reg;
-  p_ctrl->spi_protocol         = p_cfg->spi_protocol;
-  p_ctrl->channel              = p_cfg_extend->channel;
-  p_ctrl->ospi_unit            = p_cfg_extend->ospi_unit;
+  p_ctrl->p_cfg                         = p_cfg;
+  p_ctrl->p_reg                         = p_reg;
+  p_ctrl->spi_protocol                  = p_cfg->spi_protocol;
+  p_ctrl->channel                       = p_cfg_extend->channel;
+  p_ctrl->ospi_unit                     = p_cfg_extend->ospi_unit;
 
   // Initialize transfer instance
   transfer_instance_t const *p_transfer = p_cfg_extend->p_lower_lvl_transfer;
@@ -269,9 +262,9 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
     FSP_ERR_UNSUPPORTED - API not supported by OSPI
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl *p_ctrl,
-                                 uint8_t const *const p_src,
-                                 uint32_t const       bytes,
-                                 bool const           read_after_write)
+                                 uint8_t const *const       p_src,
+                                 uint32_t const             bytes,
+                                 bool const                 read_after_write)
 {
   return FSP_ERR_UNSUPPORTED;
 }
@@ -307,7 +300,6 @@ fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *cons
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction)
 {
-
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
     if (NULL == p_ctrl || NULL == p_transfer || 0 == p_transfer->command_length)
@@ -341,7 +333,6 @@ fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
   if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
   {
-
     if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
     {
       if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
@@ -381,7 +372,6 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
   if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
   {
-
     if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
     {
       if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
@@ -425,7 +415,7 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
 {
-  fsp_err_t                  err             = FSP_SUCCESS;
+  fsp_err_t err = FSP_SUCCESS;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -471,8 +461,8 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
   }
 
   // Setup and start DMAC transfer
-  T_mc80_ospi_extended_cfg  *p_cfg_extend                  = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
-  transfer_instance_t const *p_transfer                    = p_cfg_extend->p_lower_lvl_transfer;
+  T_mc80_ospi_extended_cfg const *p_cfg_extend             = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer               = p_cfg_extend->p_lower_lvl_transfer;
 
   // Enable Octa-SPI DMA Bufferable Write
   dmac_extended_cfg_t const *p_dmac_extend                 = p_transfer->p_cfg->p_extend;
@@ -550,7 +540,6 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_device_address, uint32_t byte_count)
 {
-
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
     if (NULL == p_ctrl || NULL == p_device_address || 0 == byte_count)
@@ -623,7 +612,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
     while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
     {
-      __NOP(); // Breakpoint for memory access wait
+      __NOP();  // Breakpoint for memory access wait
     }
     p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK;
   }
@@ -645,7 +634,6 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_status *const p_status)
 {
-
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
     if (NULL == p_ctrl || NULL == p_status)
@@ -680,7 +668,51 @@ fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t bank)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Sets the SPI protocol.
+  Sets the SPI protocol. Dynamically switches between Standard SPI (1S-1S-1S) and Octal DDR (8D-8D-8D)
+  modes by updating OSPI hardware registers and selecting appropriate command set from MC80_OSPI_config.c.
+
+  === Mc80_ospi_spi_protocol_set() Function Operation ===
+
+  The Mc80_ospi_spi_protocol_set() function allows dynamic switching between different OSPI protocols
+  during runtime. It uses the command set table from this configuration file to reconfigure the
+  peripheral for the new protocol.
+
+  How it works:
+  1. Accepts a new protocol type (e.g., MC80_OSPI_PROTOCOL_1S_1S_1S or MC80_OSPI_PROTOCOL_8D_8D_8D)
+  2. Searches through g_OSPI_command_set_table[] to find matching protocol configuration
+  3. Updates the peripheral registers with new timing, commands, and protocol settings
+  4. Switches between Standard SPI mode and high-speed Octal DDR mode seamlessly
+
+  Configuration Elements Used:
+
+  * g_OSPI_command_set_table[] - Main protocol configuration array containing:
+    - Protocol definitions (1S-1S-1S for Standard SPI, 8D-8D-8D for Octal DDR)
+    - Command formats and dummy cycle counts
+    - Address and data phase configurations
+    - Frame formats and latency modes
+
+  * g_OSPI_command_set - Table descriptor pointing to the command set array
+    - Used by _Mc80_ospi_command_set_get() to locate protocol configurations
+    - Length field ensures safe iteration through available protocols
+
+  * Protocol-specific configurations:
+    - Standard SPI (1S-1S-1S): Uses single-line commands with 1-byte opcodes
+    - Octal DDR (8D-8D-8D): Uses 8-line double data rate with 2-byte opcodes
+
+  * Command mappings for each protocol:
+    - Read commands (FAST_READ4B vs 8READ_DTR)
+    - Write commands (PP4B vs PP4B_STR)
+    - Status commands (RDSR vs RDSR_STR)
+    - Dummy cycle requirements (8 cycles for SPI, 20 cycles for DDR)
+
+  * Erase command tables:
+    - g_OSPI_command_set_initial_erase_table for Standard SPI mode
+    - g_OSPI_command_set_high_speed_erase_table for Octal DDR mode (empty - erase only in SPI)
+
+  The function enables seamless protocol switching for performance optimization:
+  - Start with reliable Standard SPI for initialization
+  - Switch to high-speed Octal DDR for bulk data operations
+  - Return to Standard SPI for erase operations (required by flash device)
 
   Parameters:
     p_ctrl       - Pointer to the control structure
@@ -694,7 +726,6 @@ fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t bank)
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_protocol spi_protocol)
 {
-
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
     if (NULL == p_ctrl)
@@ -709,7 +740,7 @@ fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_o
 
   // Save the old protocol in case of an undefined command set
   T_mc80_ospi_protocol old_protocol = p_ctrl->spi_protocol;
-  p_ctrl->spi_protocol     = spi_protocol;
+  p_ctrl->spi_protocol              = spi_protocol;
 
   // Update the SPI protocol and its associated registers
   fsp_err_t err                     = _Mc80_ospi_protocol_specific_settings(p_ctrl);
@@ -736,7 +767,7 @@ fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_o
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  fsp_err_t                  err             = FSP_SUCCESS;
+  fsp_err_t err = FSP_SUCCESS;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -750,10 +781,10 @@ fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl *p_ctrl)
     }
   }
 
-  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
 
   // Close transfer instance
-  transfer_instance_t const *p_transfer  = p_cfg_extend->p_lower_lvl_transfer;
+  transfer_instance_t const *p_transfer        = p_cfg_extend->p_lower_lvl_transfer;
   p_transfer->p_api->close(p_transfer->p_ctrl);
 
   p_ctrl->open = 0U;
@@ -793,13 +824,13 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   p_ctrl->p_cmd_set = p_cmd_set;
 
   // Update the SPI protocol and latency mode
-  uint32_t liocfg            = p_reg->LIOCFGCS[p_ctrl->channel] & ~(OSPI_LIOCFGCSN_LATEMD_Msk | OSPI_LIOCFGCSN_PRTMD_Msk);
+  uint32_t liocfg   = p_reg->LIOCFGCS[p_ctrl->channel] & ~(OSPI_LIOCFGCSN_LATEMD_Msk | OSPI_LIOCFGCSN_PRTMD_Msk);
   liocfg |= (((uint32_t)p_ctrl->spi_protocol << OSPI_LIOCFGCSN_PRTMD_Pos) & OSPI_LIOCFGCSN_PRTMD_Msk);
   liocfg |= (((uint32_t)p_cmd_set->latency_mode << OSPI_LIOCFGCSN_LATEMD_Pos) & OSPI_LIOCFGCSN_LATEMD_Msk);
   p_reg->LIOCFGCS[p_ctrl->channel] = liocfg;
 
   // Specifies the read/write commands and Read dummy clocks for Device
-  uint32_t cmcfg0                           = ((uint32_t)(p_cmd_set->address_msb_mask << OSPI_CMCFG0CSN_ADDRPEN_Pos)) |
+  uint32_t cmcfg0                  = ((uint32_t)(p_cmd_set->address_msb_mask << OSPI_CMCFG0CSN_ADDRPEN_Pos)) |
                     ((uint32_t)(p_cmd_set->frame_format << OSPI_CMCFG0CSN_FFMT_Pos)) |
                     (((uint32_t)p_cmd_set->address_bytes << OSPI_CMCFG0CSN_ADDSIZE_Pos) &
                      OSPI_CMCFG0CSN_ADDSIZE_Msk);
@@ -816,8 +847,8 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
   p_reg->CMCFGCS[p_ctrl->channel].CMCFG0 = cmcfg0;
 
   // Cache the appropriate command values for later use
-  uint16_t read_command                           = p_cmd_set->read_command;
-  uint16_t write_command                          = p_cmd_set->program_command;
+  uint16_t read_command                  = p_cmd_set->read_command;
+  uint16_t write_command                 = p_cmd_set->program_command;
 
   // If no length is specified or if the command byte length is 1, move the command to the upper byte
   if (MC80_OSPI_COMMAND_BYTES_1 == p_cmd_set->command_bytes)
@@ -826,16 +857,16 @@ static fsp_err_t _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl
     write_command = (uint16_t)((write_command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT);
   }
 
-  const uint8_t read_dummy_cycles                 = p_cmd_set->read_dummy_cycles;
-  const uint8_t write_dummy_cycles                = p_cmd_set->program_dummy_cycles;
+  const uint8_t read_dummy_cycles        = p_cmd_set->read_dummy_cycles;
+  const uint8_t write_dummy_cycles       = p_cmd_set->program_dummy_cycles;
 
   p_reg->CMCFGCS[p_ctrl->channel].CMCFG1 = (uint32_t)(((uint32_t)(read_command) << OSPI_CMCFG1CSN_RDCMD_Pos) |
-                                                               ((uint32_t)(read_dummy_cycles << OSPI_CMCFG1CSN_RDLATE_Pos) &
-                                                                OSPI_CMCFG1CSN_RDLATE_Msk));
+                                                      ((uint32_t)(read_dummy_cycles << OSPI_CMCFG1CSN_RDLATE_Pos) &
+                                                       OSPI_CMCFG1CSN_RDLATE_Msk));
 
   p_reg->CMCFGCS[p_ctrl->channel].CMCFG2 = (uint32_t)(((uint32_t)(write_command) << OSPI_CMCFG2CSN_WRCMD_Pos) |
-                                                               ((uint32_t)(write_dummy_cycles << OSPI_CMCFG2CSN_WRLATE_Pos) &
-                                                                OSPI_CMCFG2CSN_WRLATE_Msk));
+                                                      ((uint32_t)(write_dummy_cycles << OSPI_CMCFG2CSN_WRLATE_Pos) &
+                                                       OSPI_CMCFG2CSN_WRLATE_Msk));
 
   return ret;
 }
@@ -966,7 +997,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   // Direct Read/Write settings (see RA8M1 User's Manual section "Flow of Manual-command Procedure")
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
-    __NOP(); // Breakpoint for transaction ready wait
+    __NOP();  // Breakpoint for transaction ready wait
   }
 
   p_reg->CDBUF[0].CDT = cdtbuf0;
@@ -985,7 +1016,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   p_reg->CDCTL0_b.TRREQ = 1;
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
-    __NOP(); // Breakpoint for transaction completion wait
+    __NOP();  // Breakpoint for transaction completion wait
   }
 
   if (MC80_OSPI_DIRECT_TRANSFER_DIR_READ == direction)
@@ -1012,7 +1043,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
 -----------------------------------------------------------------------------------------------------*/
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  T_mc80_ospi_extended_cfg *p_cfg_extend = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
 
   if (NULL == p_cfg_extend->p_xspi_command_set)
   {
@@ -1033,7 +1064,6 @@ static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_osp
   return NULL;
 }
 
-#if MC80_OSPI_CFG_AUTOCALIBRATION_SUPPORT_ENABLE
 /*-----------------------------------------------------------------------------------------------------
   Automatic calibration sequence for OSPI
 
@@ -1045,18 +1075,18 @@ static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_osp
     FSP_ERR_DEVICE_BUSY      - Auto-calibration already in progress
     FSP_ERR_CALIBRATE_FAILED - Auto-calibration failed
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl *p_ctrl)
+fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  R_XSPI0_Type *const       p_reg               = p_ctrl->p_reg;
-  fsp_err_t                 ret                 = FSP_SUCCESS;
-  T_mc80_ospi_extended_cfg *p_cfg_extend        = MC80_OSPI_PRV_EXTENDED_CFG(p_ctrl);
+  R_XSPI0_Type *const             p_OSPI        = p_ctrl->p_reg;
+  fsp_err_t                       ret           = FSP_SUCCESS;
+  T_mc80_ospi_extended_cfg const *p_cfg_extend  = p_ctrl->p_cfg->p_extend;
 
   T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
   T_mc80_ospi_device_number channel             = p_ctrl->channel;
 
   // Check that calibration is not in progress
-  if (0 != p_reg->CCCTLCS[channel].CCCTL0_b.CAEN)
+  if (0 != p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN)
   {
     return FSP_ERR_DEVICE_BUSY;
   }
@@ -1072,47 +1102,33 @@ static fsp_err_t _Mc80_ospi_automatic_calibration_seq(T_mc80_ospi_instance_ctrl 
     read_command = (uint16_t)((read_command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT);
   }
 
-  p_reg->CCCTLCS[channel].CCCTL1 =
-  (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) &
-   OSPI_CCCTL1CSn_CACMDSIZE_Msk) |
-  (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) &
-   OSPI_CCCTL1CSn_CAADDSIZE_Msk) |
-  (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) |
-  (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) |
-  (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) &
-   OSPI_CCCTL1CSn_CARDLATE_Msk);
-
-  p_reg->CCCTLCS[channel].CCCTL2 = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
-
-  p_reg->CCCTLCS[channel].CCCTL3 = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
+  p_OSPI->CCCTLCS[channel].CCCTL1        = (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) & OSPI_CCCTL1CSn_CACMDSIZE_Msk) | (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) & OSPI_CCCTL1CSn_CAADDSIZE_Msk) | (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) | (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) | (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) & OSPI_CCCTL1CSn_CARDLATE_Msk);
+  p_OSPI->CCCTLCS[channel].CCCTL2        = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
+  p_OSPI->CCCTLCS[channel].CCCTL3        = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
 
   // Configure auto-calibration
-  p_reg->CCCTLCS[channel].CCCTL0 =
-  (0x1FU << OSPI_CCCTL0CSn_CAITV_Pos) |
-  (0x1U << OSPI_CCCTL0CSn_CANOWR_Pos) |
-  (0x1FU << OSPI_CCCTL0CSn_CASFTEND_Pos);
+  p_OSPI->CCCTLCS[channel].CCCTL0        = (0x1FU << OSPI_CCCTL0CSn_CAITV_Pos) | (0x1U << OSPI_CCCTL0CSn_CANOWR_Pos) | (0x1FU << OSPI_CCCTL0CSn_CASFTEND_Pos);
 
   // Start auto-calibration
-  p_reg->CCCTLCS[channel].CCCTL0_b.CAEN = 1;
+  p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN = 1;
 
   // Wait for calibration to complete
-  while (p_reg->CCCTLCS[channel].CCCTL0_b.CAEN != 0)
+  while (p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN != 0)
   {
-    __NOP(); // Breakpoint for calibration wait
+    __NOP();  // Breakpoint for calibration wait
   }
 
   // Check if calibration was successful
-  if (0 != (p_reg->INTS & (1U << (OSPI_INTS_CAFAILCS0_Pos + channel))))
+  if (0 != (p_OSPI->INTS & (1U << (OSPI_INTS_CAFAILCS0_Pos + channel))))
   {
-    ret         = FSP_ERR_CALIBRATE_FAILED;
+    ret          = FSP_ERR_CALIBRATE_FAILED;
 
     // Clear automatic calibration failure status
-    p_reg->INTC = (uint32_t)1 << (OSPI_INTS_CAFAILCS0_Pos + channel);
+    p_OSPI->INTC = (uint32_t)1 << (OSPI_INTS_CAFAILCS0_Pos + channel);
   }
 
   return ret;
 }
-#endif
 
 #if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
 /*-----------------------------------------------------------------------------------------------------
@@ -1140,7 +1156,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
   // Wait for any on-going access to complete
   while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
   {
-    __NOP(); // Breakpoint for access completion wait
+    __NOP();  // Breakpoint for access completion wait
   }
 
   if (is_entering)
@@ -1163,7 +1179,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
     // Wait for the read to complete
     while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
     {
-      __NOP(); // Breakpoint for XIP enter read wait
+      __NOP();  // Breakpoint for XIP enter read wait
     }
   }
   else
@@ -1178,7 +1194,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
     // Wait for the read to complete
     while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
     {
-      __NOP(); // Breakpoint for XIP exit read wait
+      __NOP();  // Breakpoint for XIP exit read wait
     }
 
     // Change memory-mapping back to R/W mode (preserve bits 4-7)
