@@ -61,10 +61,12 @@
 #define MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT             (8U)
 #define MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK              (0xFFFFU)
 
-#define MC80_OSPI_PRV_BMCTL0_DISABLED_VALUE                 (0x00)  // 0b0000'0000
-#define MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE                (0x55)  // 0b0101'0101
-#define MC80_OSPI_PRV_BMCTL0_WRITE_ONLY_VALUE               (0xAA)  // 0b1010'1010
-#define MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE               (0xFF)  // 0b1111'1111
+// BMCTL0 register values - bits 4-7 must always be set to 1 per documentation
+#define MC80_OSPI_PRV_BMCTL0_RESERVED_BITS                  (0xF0)  // Bits 4-7 must be 1
+#define MC80_OSPI_PRV_BMCTL0_DISABLED_VALUE                 (0xF0)  // 0b1111'0000 - Reserved bits + disabled
+#define MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE                (0xF5)  // 0b1111'0101 - Reserved bits + read-only
+#define MC80_OSPI_PRV_BMCTL0_WRITE_ONLY_VALUE               (0xFA)  // 0b1111'1010 - Reserved bits + write-only
+#define MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE               (0xFF)  // 0b1111'1111 - Reserved bits + read/write
 
 #define MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK            (0x03 << OSPI_BMCTL1_PBUFCLRCH0_Pos)
 #define MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK    (0x03 << OSPI_BMCTL1_MWRPUSHCH0_Pos)
@@ -172,13 +174,14 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
   p_transfer->p_api->open(p_transfer->p_ctrl, p_transfer->p_cfg);
 
   // Disable memory-mapping for this slave. It will be enabled later on after initialization
+  // Note: Preserve bits 4-7 which must always be 1
   if (MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel)
   {
-    p_reg->BMCTL0 &= ~(OSPI_BMCTL0_CH0CS0ACC_Msk);
+    p_reg->BMCTL0 = (p_reg->BMCTL0 & ~OSPI_BMCTL0_CH0CS0ACC_Msk) | MC80_OSPI_PRV_BMCTL0_RESERVED_BITS;
   }
   else
   {
-    p_reg->BMCTL0 &= ~(OSPI_BMCTL0_CH0CS1ACC_Msk);
+    p_reg->BMCTL0 = (p_reg->BMCTL0 & ~OSPI_BMCTL0_CH0CS1ACC_Msk) | MC80_OSPI_PRV_BMCTL0_RESERVED_BITS;
   }
 
   // Perform xSPI Initial configuration as described in hardware manual
@@ -229,13 +232,14 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
   p_reg->BMCFGCH[1] = bmcfgch;
 
   // Re-activate memory-mapped mode in Read/Write
+  // Note: Preserve bits 4-7 which must always be 1
   if (0 == p_ctrl->channel)
   {
-    p_reg->BMCTL0 |= OSPI_BMCTL0_CH0CS0ACC_Msk;
+    p_reg->BMCTL0 = (p_reg->BMCTL0 & ~OSPI_BMCTL0_CH0CS0ACC_Msk) | OSPI_BMCTL0_CH0CS0ACC_Msk | MC80_OSPI_PRV_BMCTL0_RESERVED_BITS;
   }
   else
   {
-    p_reg->BMCTL0 |= OSPI_BMCTL0_CH0CS1ACC_Msk;
+    p_reg->BMCTL0 = (p_reg->BMCTL0 & ~OSPI_BMCTL0_CH0CS1ACC_Msk) | OSPI_BMCTL0_CH0CS1ACC_Msk | MC80_OSPI_PRV_BMCTL0_RESERVED_BITS;
   }
 
   if (FSP_SUCCESS == ret)
@@ -1141,7 +1145,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
 
   if (is_entering)
   {
-    // Change memory-mapping to read-only mode
+    // Change memory-mapping to read-only mode (preserve bits 4-7)
     p_reg->BMCTL0          = MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE;
 
     // Configure XiP codes and enable
@@ -1177,7 +1181,7 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
       __NOP(); // Breakpoint for XIP exit read wait
     }
 
-    // Change memory-mapping back to R/W mode
+    // Change memory-mapping back to R/W mode (preserve bits 4-7)
     p_reg->BMCTL0 = MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE;
   }
 }

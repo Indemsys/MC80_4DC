@@ -21,8 +21,8 @@
 
 // Hardware-specific constants (independent from FSP BSP)
 #define MC80_OSPI_PERIPHERAL_CHANNEL_MASK            (0x03U)  // OSPI units 0 and 1 available
-#define MC80_OSPI_DEVICE_0_START_ADDRESS             (0x60000000UL)  // Memory-mapped address for device 0
-#define MC80_OSPI_DEVICE_1_START_ADDRESS             (0x68000000UL)  // Memory-mapped address for device 1
+#define MC80_OSPI_DEVICE_0_START_ADDRESS             (0x80000000UL)  // Memory-mapped address for device 0 (must match BSP_FEATURE_OSPI_B_DEVICE_0_START_ADDRESS)
+#define MC80_OSPI_DEVICE_1_START_ADDRESS             (0x90000000UL)  // Memory-mapped address for device 1 (must match BSP_FEATURE_OSPI_B_DEVICE_1_START_ADDRESS)
 
 // OSPI hardware base addresses
 #define MC80_OSPI0_BASE_ADDRESS                      (0x40268000UL)  // OSPI0 base address
