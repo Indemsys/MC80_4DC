@@ -90,10 +90,7 @@ static fsp_err_t                           _Mc80_ospi_protocol_specific_settings
 static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
-
-#if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
-#endif
 
 /*-----------------------------------------------------------------------------------------------------
   Private global variables
@@ -459,6 +456,11 @@ fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_os
 /*-----------------------------------------------------------------------------------------------------
   Enters XIP (execute in place) mode.
 
+  NOTE: For the MX25UM25645G flash memory chip used in this project, XIP mode manipulation
+  is not required. The chip can operate in continuous memory-mapped mode without explicit
+  XIP enter/exit commands. This function is provided for compatibility but may not be
+  necessary for normal operation.
+
   Parameters:
     p_ctrl - Pointer to the control structure
 
@@ -470,33 +472,31 @@ fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_os
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+    if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
     {
-      if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
-      {
-        return FSP_ERR_ASSERTION;
-      }
-      if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
-      {
-        return FSP_ERR_NOT_OPEN;
-      }
+      return FSP_ERR_ASSERTION;
     }
-
-    // Enter XIP mode
-    _Mc80_ospi_xip(p_ctrl, true);
-
-    return FSP_SUCCESS;
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
   }
-  else
-  {
-    return FSP_ERR_UNSUPPORTED;
-  }
+
+  // Enter XIP mode
+  _Mc80_ospi_xip(p_ctrl, true);
+
+  return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
   Exits XIP (execute in place) mode.
+
+  NOTE: For the MX25UM25645G flash memory chip used in this project, XIP mode manipulation
+  is not required. The chip can operate in continuous memory-mapped mode without explicit
+  XIP enter/exit commands. This function is provided for compatibility but may not be
+  necessary for normal operation.
 
   Parameters:
     p_ctrl - Pointer to the control structure
@@ -509,29 +509,22 @@ fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl *p_ctrl)
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
-  if (MC80_OSPI_CFG_XIP_SUPPORT_ENABLE)
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
-    if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+    if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
     {
-      if (NULL == p_ctrl || NULL == p_ctrl->p_cfg)
-      {
-        return FSP_ERR_ASSERTION;
-      }
-      if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
-      {
-        return FSP_ERR_NOT_OPEN;
-      }
+      return FSP_ERR_ASSERTION;
     }
-
-    // Exit XIP mode
-    _Mc80_ospi_xip(p_ctrl, false);
-
-    return FSP_SUCCESS;
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
   }
-  else
-  {
-    return FSP_ERR_UNSUPPORTED;
-  }
+
+  // Exit XIP mode
+  _Mc80_ospi_xip(p_ctrl, false);
+
+  return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -1627,29 +1620,24 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: High-performance memory-mapped read from flash with integrated XIP cycling
+  Description: High-performance memory-mapped read from flash using DMA transfer
 
-  This function performs optimized memory-mapped reading from OSPI flash memory with integrated
-  XIP mode cycling for maximum performance. All XIP operations are performed directly through
-  register manipulation to minimize function call overhead and maximize read speed.
+  This function performs optimized memory-mapped reading from OSPI flash memory using DMA
+  for maximum performance. The function directly accesses the memory-mapped flash region
+  and uses DMA to transfer data to the destination buffer.
 
   Operation sequence:
   1. Validates input parameters (pointers, size limits, alignment)
-  2. Calculates memory-mapped address and dummy read address based on channel
-  3. Clears prefetch buffers and waits for pending operations
-  4. Performs fast XIP exit by directly manipulating CMCTLCH registers
-  5. Executes dummy read to send exit code and waits for completion
-  6. Performs fast XIP enter by directly configuring BMCTL0 and CMCTLCH registers
-  7. Executes dummy read to send enter code and waits for completion
-  8. Performs direct memory copy from memory-mapped flash address to destination buffer
+  2. Calculates memory-mapped address based on channel and input address
+  3. Configures DMA for memory-to-memory transfer from flash to destination buffer
+  4. Starts DMA transfer and waits for completion
+  5. Returns success when transfer is complete
 
-  Note: XIP mode remains enabled after reading for faster subsequent operations
-
-  Performance Optimizations:
-  - Direct register manipulation instead of API function calls
-  - Integrated XIP exit/enter operations without error checking overhead
-  - Single memory copy operation for data transfer
-  - Minimal function call stack depth
+  Performance Benefits:
+  - DMA handles data transfer without CPU intervention
+  - Maximum throughput for large data transfers
+  - CPU can perform other tasks during transfer
+  - Hardware-optimized memory access patterns
 
   Memory-mapped Address Calculation:
   - Device 0 (Channel 0): Flash appears at 0x80000000 + flash_address
@@ -1657,11 +1645,12 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   - Input address parameter should be the physical flash address (0x00000000-based)
   - Function automatically calculates the correct memory-mapped address
 
-  XIP Mode Cycling Benefits:
-  - Ensures fresh data reads without stale cache content
-  - Resets internal timing and state machines
-  - Prevents potential data corruption from long XIP sessions
-  - Provides deterministic read behavior
+  DMA Configuration:
+  - Source: Memory-mapped flash address
+  - Destination: User-provided buffer
+  - Transfer mode: Memory-to-memory
+  - Transfer size: 1 byte increments
+  - Completion: Waits for transfer completion
 
   Parameters: p_ctrl - Pointer to OSPI instance control structure
               p_dest - Destination buffer for read data
@@ -1672,6 +1661,7 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
           FSP_ERR_ASSERTION - Invalid parameters
           FSP_ERR_NOT_OPEN - Driver not opened
           FSP_ERR_UNSUPPORTED - XIP support not enabled
+          Error codes from DMA operations
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
 {
@@ -1688,86 +1678,65 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
     }
   }
 
-#if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
-  R_XSPI0_Type *const    p_reg = p_ctrl->p_reg;
-  const T_mc80_ospi_cfg *p_cfg = p_ctrl->p_cfg;
-  volatile uint8_t      *p_dummy_read_address;
-  volatile uint8_t       dummy_read = 0;
+  fsp_err_t err = FSP_SUCCESS;
 
   // Calculate memory-mapped address based on channel
   uint32_t memory_mapped_address;
   if (p_ctrl->channel == MC80_OSPI_DEVICE_NUMBER_0)
   {
     memory_mapped_address = MC80_OSPI_DEVICE_0_START_ADDRESS + address;
-    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_0_START_ADDRESS;
   }
   else
   {
     memory_mapped_address = MC80_OSPI_DEVICE_1_START_ADDRESS + address;
-    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_1_START_ADDRESS;
   }
 
-  // Clear the pre-fetch buffer for this bank
-  #if MC80_OSPI_CFG_PREFETCH_FUNCTION
-  p_reg->BMCTL1 |= 0x03U << OSPI_BMCTL1_PBUFCLRCH0_Pos;
-  #endif
+  // Get DMA transfer instance from OSPI configuration
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
 
-  // Wait for any on-going access to complete
-  //while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
-  //{
-  //  __NOP();  // Breakpoint for access completion wait
-  //}
+  // Configure DMA for memory-to-memory transfer
+  p_transfer->p_cfg->p_info->p_src                         = (void const *)memory_mapped_address;
+  p_transfer->p_cfg->p_info->p_dest                        = p_dest;
+  p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+  p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+  p_transfer->p_cfg->p_info->length                        = (uint16_t)bytes;
 
-  // Step 1: Fast XIP exit - disable XIP directly
-  p_reg->CMCTLCH[0] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
-//  p_reg->CMCTLCH[1] &= ~OSPI_CMCTLCHn_XIPEN_Msk;
+  // Reconfigure DMA with new settings
+  err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
 
-  // Perform a read to send the exit code
-  dummy_read = *p_dummy_read_address;
+  // Start DMA transfer
+  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_SINGLE);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
 
-  // Wait for the read to complete
-  //while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
-  //{
-  //  __NOP();  // Breakpoint for XIP exit read wait
-  //}
-
-  // Step 2: Fast XIP enter - configure and enable XIP directly
-  // Change memory-mapping to read-only mode (preserve bits 4-7)
-  p_reg->BMCTL0 = MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE;
-
-  // Configure XiP codes and enable
-  const uint32_t cmctlch = OSPI_CMCTLCHn_XIPEN_Msk |
-                           ((uint32_t)(p_cfg->xip_enter_command << OSPI_CMCTLCHn_XIPENCODE_Pos)) |
-                           ((uint32_t)(p_cfg->xip_exit_command << OSPI_CMCTLCHn_XIPEXCODE_Pos));
-
-  // XiP enter/exit codes are configured for both OSPI slave channels
-  p_reg->CMCTLCH[0] = cmctlch;
-//  p_reg->CMCTLCH[1] = cmctlch;
-
-  // Perform a read to send the enter code
-  dummy_read = *p_dummy_read_address;
-
-  // Wait for the read to complete
- // while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
- // {
- //   __NOP();  // Breakpoint for XIP enter read wait
- // }
-
-  // Step 3: Perform optimized memory-mapped read using direct memory copy
-  // Flash memory appears as regular system memory in XIP mode
-  memcpy(p_dest, (void*)memory_mapped_address, bytes);
+  // Wait for DMA transfer to complete
+  volatile transfer_properties_t transfer_properties = { 0U };
+  do
+  {
+    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
+    if (FSP_SUCCESS != err)
+    {
+      return err;
+    }
+  } while (transfer_properties.transfer_length_remaining > 0);
 
   return FSP_SUCCESS;
-
-#else
-  // XIP support is not enabled
-  return FSP_ERR_UNSUPPORTED;
-#endif
 }
 
-#if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
 /*-----------------------------------------------------------------------------------------------------
   Configures the device to enter or exit XiP mode
+
+  NOTE: For the MX25UM25645G flash memory chip used in this project, XIP mode manipulation
+  is not required. The chip can operate in continuous memory-mapped mode without explicit
+  XIP enter/exit commands. This function is provided for compatibility but may not be
+  necessary for normal operation with our memory chip.
 
   Parameters:
     p_ctrl - Pointer to the instance ctrl struct
@@ -1873,4 +1842,3 @@ fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl)
 
   return FSP_SUCCESS;
 }
-#endif

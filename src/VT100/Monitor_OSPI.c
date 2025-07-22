@@ -1721,7 +1721,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
 
   MPRINTF("Reading first 256 bytes from flash address 0x00000000...\n\r");
 
-  // Perform first memory-mapped read
+  // Perform first memory-mapped read using DMA
   fsp_err_t err1 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer1, 0x00000000, 256);
 
   if (err1 != FSP_SUCCESS)
@@ -1738,7 +1738,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
 
   MPRINTF("First read                    : SUCCESS\n\r");
 
-  // Perform second memory-mapped read for comparison
+  // Perform second memory-mapped read for comparison using DMA
   fsp_err_t err2 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer2, 0x00000000, 256);
 
   if (err2 != FSP_SUCCESS)
@@ -1755,7 +1755,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
 
   MPRINTF("Second read                   : SUCCESS\n\r");
 
-  // Perform third memory-mapped read for comparison
+  // Perform third memory-mapped read for comparison using DMA
   fsp_err_t err3 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer3, 0x00000000, 256);
 
   if (err3 != FSP_SUCCESS)
