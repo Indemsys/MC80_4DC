@@ -147,11 +147,20 @@ const T_mc80_ospi_table g_OSPI_command_set = {
   .length  = 2
 };
 
+// Default preamble patterns for auto-calibration
+static const uint32_t g_OSPI_preamble_patterns[4] = {
+  MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0,  // 0xFFFF0000U
+  MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1,  // 0x000800FFU
+  MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2,  // 0x00FFF700U
+  MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3   // 0xF700F708U
+};
+
 // === OSPI Extended Configuration ===
 const T_mc80_ospi_extended_cfg g_OSPI_extended_cfg = {
   .ospi_unit                               = 0,                               // OSPI unit number (0 or 1)
   .channel                                 = (T_mc80_ospi_device_number)0,    // Device channel number
-  .p_autocalibration_preamble_pattern_addr = (uint8_t *)0x00,                 // Auto-calibration pattern address
+  .p_autocalibration_preamble_pattern_addr = (uint8_t *)0x80000000,           // Auto-calibration pattern address (XIP base)
+  .p_autocalibration_preamble_patterns     = (uint32_t *)g_OSPI_preamble_patterns, // Preamble patterns for calibration
   .p_timing_settings                       = &g_OSPI_timing_settings,         // Timing settings
   .p_xspi_command_set                      = &g_OSPI_command_set,             // Command set table
   .data_latch_delay_clocks                 = MC80_OSPI_DS_TIMING_DELAY_NONE,  // Data latch delay

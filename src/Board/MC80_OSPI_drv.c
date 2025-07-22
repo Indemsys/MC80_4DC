@@ -29,9 +29,6 @@
 // Number of bytes combined into a single transaction for memory-mapped writes
 #define MC80_OSPI_PRV_COMBINATION_WRITE_LENGTH              (2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U))
 
-// Converts T_mc80_ospi_address_bytes to a register compatible length value
-#define MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(mc80_ospi_bytes) ((uint8_t)((mc80_ospi_bytes) + 1U))
-
 #define MC80_OSPI_PRV_BMCTL_DEFAULT_VALUE                   (0x0C)
 
 #define MC80_OSPI_PRV_CMCFG_1BYTE_VALUE_MASK                (0xFF00U)
@@ -140,7 +137,14 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
     if (!(MC80_OSPI_PERIPHERAL_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit)) ||
         (0 != (g_mc80_ospi_channels_open_flags & MC80_OSPI_PRV_CH_MASK(p_cfg_extend))))
     {
-      return (!(MC80_OSPI_PERIPHERAL_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit))) ? FSP_ERR_ASSERTION : FSP_ERR_ALREADY_OPEN;
+      if (!(MC80_OSPI_PERIPHERAL_CHANNEL_MASK & (1U << p_cfg_extend->ospi_unit)))
+      {
+        return FSP_ERR_ASSERTION;
+      }
+      else
+      {
+        return FSP_ERR_ALREADY_OPEN;
+      }
     }
   }
 
@@ -250,39 +254,174 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Writes raw data directly to the OctaFlash. API not supported. Use Mc80_ospi_direct_transfer
+  Writes raw data directly to the OctaFlash using direct transfer interface.
+  This function uses the current protocol's write command to send data directly to the flash device.
+  Large transfers are automatically split into multiple 8-byte chunks with proper address increment.
 
   Parameters:
     p_ctrl           - Pointer to the control structure
     p_src            - Source data buffer
-    bytes            - Number of bytes to write
-    read_after_write - Read after write flag
+    address          - Starting address in flash memory
+    bytes            - Number of bytes to write (any size)
+    read_after_write - Read after write flag (not used in this implementation)
 
   Return:
-    FSP_ERR_UNSUPPORTED - API not supported by OSPI
+    FSP_SUCCESS       - Data was written successfully
+    FSP_ERR_ASSERTION - A required pointer is NULL or invalid parameters
+    FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl *p_ctrl,
                                  uint8_t const *const       p_src,
+                                 uint32_t const             address,
                                  uint32_t const             bytes,
                                  bool const                 read_after_write)
 {
-  return FSP_ERR_UNSUPPORTED;
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl || NULL == p_src || 0 == bytes)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
+  // Get current command set for the active protocol
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
+  if (NULL == p_cmd_set)
+  {
+    return FSP_ERR_ASSERTION;
+  }
+
+  uint32_t bytes_remaining = bytes;
+  uint32_t current_address = address;
+  uint32_t offset = 0;
+
+  // Process data in chunks of up to 8 bytes
+  while (bytes_remaining > 0)
+  {
+    uint32_t chunk_size;
+    if (bytes_remaining > 8)
+    {
+      chunk_size = 8;
+    }
+    else
+    {
+      chunk_size = bytes_remaining;
+    }
+
+    // Prepare direct transfer structure for this chunk
+    T_mc80_ospi_direct_transfer direct_transfer = {
+      .command        = p_cmd_set->program_command,
+      .command_length = (uint8_t)p_cmd_set->command_bytes,
+      .address        = current_address,  // Use current address
+      .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),  // Include address
+      .data_length    = (uint8_t)chunk_size,
+      .dummy_cycles   = p_cmd_set->program_dummy_cycles,
+      .data_u64       = 0,
+    };
+
+    // Copy data from source buffer to transfer structure
+    for (uint32_t i = 0; i < chunk_size; i++)
+    {
+      direct_transfer.data_bytes[i] = p_src[offset + i];
+    }
+
+    // Execute the direct transfer
+    _Mc80_ospi_direct_transfer(p_ctrl, &direct_transfer, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Move to next chunk with incremented address
+    offset += chunk_size;
+    current_address += chunk_size;
+    bytes_remaining -= chunk_size;
+  }
+
+  return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Reads raw data directly from the OctaFlash. API not supported. Use Mc80_ospi_direct_transfer.
+  Reads raw data directly from the OctaFlash using direct transfer interface.
+  This function uses the current protocol's read command to receive data directly from the flash device.
+  Large transfers are automatically split into multiple 8-byte chunks with proper address increment.
 
   Parameters:
-    p_ctrl - Pointer to the control structure
-    p_dest - Destination data buffer
-    bytes  - Number of bytes to read
+    p_ctrl  - Pointer to the control structure
+    p_dest  - Destination data buffer
+    address - Starting address in flash memory
+    bytes   - Number of bytes to read (any size)
 
   Return:
-    FSP_ERR_UNSUPPORTED - API not supported by OSPI
+    FSP_SUCCESS       - Data was read successfully
+    FSP_ERR_ASSERTION - A required pointer is NULL or invalid parameters
+    FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_dest, uint32_t const bytes)
+fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_dest, uint32_t const address, uint32_t const bytes)
 {
-  return FSP_ERR_UNSUPPORTED;
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl || NULL == p_dest || 0 == bytes)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
+  // Get current command set for the active protocol
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
+  if (NULL == p_cmd_set)
+  {
+    return FSP_ERR_ASSERTION;
+  }
+
+  uint32_t bytes_remaining = bytes;
+  uint32_t current_address = address;
+  uint32_t offset = 0;
+
+  // Process data in chunks of up to 8 bytes
+  while (bytes_remaining > 0)
+  {
+    uint32_t chunk_size;
+    if (bytes_remaining > 8)
+    {
+      chunk_size = 8;
+    }
+    else
+    {
+      chunk_size = bytes_remaining;
+    }
+
+    // Prepare direct transfer structure for this chunk
+    T_mc80_ospi_direct_transfer direct_transfer = {
+      .command        = p_cmd_set->read_command,
+      .command_length = (uint8_t)p_cmd_set->command_bytes,
+      .address        = current_address,  // Use current address
+      .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),  // Include address
+      .data_length    = (uint8_t)chunk_size,
+      .dummy_cycles   = p_cmd_set->read_dummy_cycles,
+      .data_u64       = 0,
+    };
+
+    // Execute the direct transfer
+    _Mc80_ospi_direct_transfer(p_ctrl, &direct_transfer, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+
+    // Copy data from transfer structure to destination buffer
+    for (uint32_t i = 0; i < chunk_size; i++)
+    {
+      p_dest[offset + i] = direct_transfer.data_bytes[i];
+    }
+
+    // Move to next chunk with incremented address
+    offset += chunk_size;
+    current_address += chunk_size;
+    bytes_remaining -= chunk_size;
+  }
+
+  return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -396,12 +535,49 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Program a page of data to the flash.
+  Program a page of data to the flash using memory-mapped DMA transfer.
+
+  This function performs high-performance flash programming using the OSPI memory-mapped mode
+  combined with DMA (Direct Memory Access) for efficient data transfer. It operates fundamentally
+  differently from the direct transfer functions by using the hardware's automatic memory-mapped
+  interface rather than manual command sequences.
+
+  Protocol and Operation Method:
+  - Uses memory-mapped write mode where flash appears as regular system memory
+  - Flash device is accessed via memory-mapped addresses (0x80000000 for Device 0, 0x90000000 for Device 1)
+  - Automatically uses the current active protocol's write commands configured in hardware registers
+  - Protocol commands are pre-configured in CMCFG2 register during driver initialization
+  - Supports both Standard SPI (1S-1S-1S) and Octal DDR (8D-8D-8D) protocols transparently
+
+  DMA Transfer Mechanism:
+  1. Configures DMAC (Direct Memory Access Controller) for bufferable write operations
+  2. Sets up block-mode transfer from source buffer to memory-mapped flash address
+  3. Enables OSPI DMA Bufferable Write (DMBWR) for optimal performance
+  4. Starts DMA transfer in repeat mode for continuous data streaming
+  5. Waits for DMA completion to ensure deterministic operation
+  6. Handles combination write function for small transfers (< combination bytes)
+
+  Write Enable and Status Management:
+  - Automatically sends Write Enable command before programming
+  - Verifies write enable status through status register polling
+  - Checks device busy status to prevent conflicts with ongoing operations
+  - Uses the current protocol's write enable and status commands
+
+  Page Boundary and Alignment Requirements:
+  - Enforces page boundary constraints (typically 256 bytes)
+  - Requires 8-byte alignment for CPU access compatibility
+  - Validates transfer size and alignment for hardware requirements
+
+  Hardware Integration:
+  - Leverages OSPI peripheral's automatic command generation
+  - Uses pre-configured timing and protocol settings from driver initialization
+  - Integrates with combination write and prefetch functions when enabled
+  - Maintains compatibility with both OSPI units and channels
 
   Parameters:
     p_ctrl     - Pointer to the control structure
     p_src      - Source data buffer
-    p_dest     - Destination address in flash
+    p_dest     - Destination address in flash (memory-mapped address)
     byte_count - Number of bytes to write
 
   Return:
@@ -554,9 +730,19 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
 
   T_mc80_ospi_cfg const *p_cfg                  = p_ctrl->p_cfg;
   uint16_t               erase_command          = 0;
-  const uint32_t         chip_address_base      = p_ctrl->channel ? MC80_OSPI_DEVICE_1_START_ADDRESS : MC80_OSPI_DEVICE_0_START_ADDRESS;
-  uint32_t               chip_address           = (uint32_t)p_device_address - chip_address_base;
+  uint32_t               chip_address_base;
+  uint32_t               chip_address;
   bool                   send_address           = true;
+
+  if (p_ctrl->channel)
+  {
+    chip_address_base = MC80_OSPI_DEVICE_1_START_ADDRESS;
+  }
+  else
+  {
+    chip_address_base = MC80_OSPI_DEVICE_0_START_ADDRESS;
+  }
+  chip_address = (uint32_t)p_device_address - chip_address_base;
 
   T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
@@ -600,9 +786,14 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     .command        = erase_command,
     .command_length = (uint8_t)p_cmd_set->command_bytes,
     .address        = chip_address,
-    .address_length = (send_address) ? MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->address_bytes) : 0U,
+    .address_length = 0,
     .data_length    = 0,
   };
+
+  if (send_address)
+  {
+    direct_command.address_length = (uint8_t)(p_cmd_set->address_bytes + 1U);
+  }
 
   _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
@@ -894,17 +1085,23 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit
   T_mc80_ospi_direct_transfer direct_command = {
     .command        = p_cmd_set->status_command,
     .command_length = (uint8_t)p_cmd_set->command_bytes,
-    .address_length = (uint8_t)(p_cmd_set->status_needs_address ? MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->status_address_bytes) : 0U),
-    .address        = (p_cmd_set->status_needs_address) ? p_cmd_set->status_address : 0U,
+    .address_length = 0U,
+    .address        = 0U,
     .data_length    = 1U,
     .dummy_cycles   = p_cmd_set->status_dummy_cycles,
   };
+
+  if (p_cmd_set->status_needs_address)
+  {
+    direct_command.address_length = (uint8_t)(p_cmd_set->status_address_bytes + 1U);
+    direct_command.address        = p_cmd_set->status_address;
+  }
 
   // 8D-8D-8D mode requires an address for any kind of read. If the address wasn't set by the configuration
   // set it to the general address length
   if ((direct_command.address_length != 0) && (MC80_OSPI_PROTOCOL_8D_8D_8D == p_ctrl->spi_protocol))
   {
-    direct_command.address_length = MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->address_bytes);
+    direct_command.address_length = (uint8_t)(p_cmd_set->address_bytes + 1U);
   }
 
   _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
@@ -965,7 +1162,30 @@ static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Direct transfer implementation
+  Direct transfer implementation - executes manual OSPI commands outside of memory-mapped mode.
+
+  This function performs direct communication with the OSPI flash device using the manual command
+  interface. It bypasses the automatic memory-mapped mode and allows sending custom commands
+  with specific parameters for read/write operations, status checks, and device configuration.
+
+  Operation sequence:
+  1. Configures the Command Data Buffer (CDTBUF) with command parameters:
+     - Command code and length (1 or 2 bytes)
+     - Address and address length
+     - Data length and dummy cycles
+     - Transfer direction (read/write)
+  2. Sets up manual command control (CDCTL0) to select the target chip
+  3. Waits for any ongoing transactions to complete
+  4. Loads command data into the command buffer registers
+  5. For write operations: loads data into CDD0/CDD1 registers
+  6. Initiates the transaction by setting TRREQ bit
+  7. Waits for transaction completion
+  8. For read operations: retrieves data from CDD0/CDD1 registers
+  9. Clears interrupt flags
+
+  The function handles both 1-byte and 2-byte command formats, adjusting the command positioning
+  in the register based on the command length. For data transfers larger than 4 bytes, it uses
+  both CDD0 and CDD1 registers to handle up to 8 bytes of data.
 
   Parameters:
     p_ctrl - Pointer to OSPI specific control structure
@@ -982,6 +1202,8 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   R_XSPI0_Type *const             p_reg   = p_ctrl->p_reg;
   const T_mc80_ospi_device_number channel = p_ctrl->channel;
 
+  // Build the Command Data Buffer configuration register value
+  // This register defines the complete transaction format including command, address, data sizes and dummy cycles
   uint32_t cdtbuf0 =
   (((uint32_t)p_transfer->command_length << OSPI_CDTBUFn_CMDSIZE_Pos) & OSPI_CDTBUFn_CMDSIZE_Msk) |
   (((uint32_t)p_transfer->address_length << OSPI_CDTBUFn_ADDSIZE_Pos) & OSPI_CDTBUFn_ADDSIZE_Msk) |
@@ -989,46 +1211,58 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   (((uint32_t)p_transfer->dummy_cycles << OSPI_CDTBUFn_LATE_Pos) & OSPI_CDTBUFn_LATE_Msk) |
   (((uint32_t)direction << OSPI_CDTBUFn_TRTYPE_Pos) & OSPI_CDTBUFn_TRTYPE_Msk);
 
-  cdtbuf0 |= (1 == p_transfer->command_length) ? ((p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET) : ((p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_OFFSET);
+  // Handle command code positioning based on command length
+  // 1-byte commands go in upper byte, 2-byte commands use both bytes
+  if (1 == p_transfer->command_length)
+  {
+    cdtbuf0 |= (p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET;
+  }
+  else
+  {
+    cdtbuf0 |= (p_transfer->command & MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_OFFSET;
+  }
 
-  // Setup the manual command control. Cancel any ongoing transactions, direct mode, set channel, 1 transaction
+  // Configure manual command control: cancel ongoing transactions, select target channel
   p_reg->CDCTL0 = ((((uint32_t)channel) << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
 
-  // Direct Read/Write settings (see RA8M1 User's Manual section "Flow of Manual-command Procedure")
+  // Wait for any ongoing transaction to complete before starting new one
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
     __NOP();  // Breakpoint for transaction ready wait
   }
 
-  p_reg->CDBUF[0].CDT = cdtbuf0;
-  p_reg->CDBUF[0].CDA = p_transfer->address;
+  // Load the transaction configuration and address into command buffer
+  p_reg->CDBUF[0].CDT = cdtbuf0;   // Command Data Transaction register
+  p_reg->CDBUF[0].CDA = p_transfer->address;  // Command Data Address register
 
+  // For write operations: load data into the data registers before starting transaction
   if (MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE == direction)
   {
-    p_reg->CDBUF[0].CDD0 = (uint32_t)(p_transfer->data_u64 & UINT32_MAX);
+    p_reg->CDBUF[0].CDD0 = (uint32_t)(p_transfer->data_u64 & UINT32_MAX);  // Lower 32 bits
     if (p_transfer->data_length > sizeof(uint32_t))
     {
-      p_reg->CDBUF[0].CDD1 = (uint32_t)(p_transfer->data_u64 >> MC80_OSPI_PRV_UINT32_BITS);
+      p_reg->CDBUF[0].CDD1 = (uint32_t)(p_transfer->data_u64 >> MC80_OSPI_PRV_UINT32_BITS);  // Upper 32 bits
     }
   }
 
   // Start the transaction and wait for completion
-  p_reg->CDCTL0_b.TRREQ = 1;
+  p_reg->CDCTL0_b.TRREQ = 1;  // Initiate transaction
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
     __NOP();  // Breakpoint for transaction completion wait
   }
 
+  // For read operations: retrieve data from the data registers after transaction completes
   if (MC80_OSPI_DIRECT_TRANSFER_DIR_READ == direction)
   {
-    p_transfer->data_u64 = p_reg->CDBUF[0].CDD0;
+    p_transfer->data_u64 = p_reg->CDBUF[0].CDD0;  // Read lower 32 bits
     if (p_transfer->data_length > sizeof(uint32_t))
     {
-      p_transfer->data_u64 |= (((uint64_t)p_reg->CDBUF[0].CDD1) << MC80_OSPI_PRV_UINT32_BITS);
+      p_transfer->data_u64 |= (((uint64_t)p_reg->CDBUF[0].CDD1) << MC80_OSPI_PRV_UINT32_BITS);  // Combine with upper 32 bits
     }
   }
 
-  // Clear interrupt flags
+  // Clear interrupt flags to prepare for next transaction
   p_reg->INTC = p_reg->INTS;
 }
 
@@ -1065,18 +1299,93 @@ static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_osp
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Automatic calibration sequence for OSPI
+  Description: Automatic calibration sequence for OSPI timing parameters in high-speed protocols.
 
-  Parameters:
-    p_ctrl - Pointer to OSPI specific control structure
+  This function performs automatic calibration of read data strobe timing for reliable high-speed
+  OSPI communication, particularly critical for 8D-8D-8D (Octal DDR) protocol operation.
 
-  Return:
-    FSP_SUCCESS              - Auto-calibration completed successfully
-    FSP_ERR_DEVICE_BUSY      - Auto-calibration already in progress
-    FSP_ERR_CALIBRATE_FAILED - Auto-calibration failed
+  Calibration Process:
+  1. Validates that no calibration is currently in progress (CAEN bit check)
+  2. Saves current timing parameters before calibration (if p_calibration_data provided)
+  3. Extracts current protocol parameters (command format, address size, dummy cycles)
+  4. Configures calibration control registers (CCCTL1-3) with:
+     - Command size and format (1 or 2 bytes, positioned correctly)
+     - Address size from current protocol settings
+     - Read command from active command set
+     - Dummy cycles matching protocol requirements
+     - Calibration data size (0xF = 15 bytes)
+     - Preamble pattern address for known data reading
+  5. Sets preamble patterns in CCCTL4-7 registers for data comparison:
+     - Uses patterns from configuration (p_autocalibration_preamble_patterns)
+     - Falls back to default patterns if configuration pointer is NULL
+     - Patterns must match data at the specified calibration address in flash
+     - Default patterns: 0xFFFF0000, 0x000800FF, 0x00FFF700, 0xF700F708
+     - Write patterns to flash at calibration address before running calibration
+  6. Sets calibration parameters in CCCTL0:
+     - CAITV: Calibration interval (0x1F cycles)
+     - CANOWR: No overwrite mode enabled
+     - CASFTEND: Shift end value (0x1F)
+  7. Starts automatic calibration by setting CAEN bit
+  8. Waits for hardware to complete calibration process by monitoring INTS register:
+     - CASUCCS flag indicates successful calibration
+     - CAFAIL flag indicates calibration failure
+     - Timeout protection prevents infinite waiting
+  9. Disables calibration by clearing CAEN bit
+  10. Checks calibration result and clears appropriate interrupt flags
+  11. Saves timing parameters after calibration (if p_calibration_data provided)
+
+  Hardware Operation:
+  The OSPI peripheral automatically:
+  - Tests multiple data strobe timing delays
+  - Reads known pattern data from the specified address
+  - Compares received data against expected pattern
+  - Selects optimal timing that provides reliable data reception
+  - Updates internal timing registers with calibrated values
+
+  Calibrated Parameters Storage:
+  Results are automatically written to hardware registers by the OSPI peripheral:
+  - CASTTCSn (0x188 + 0x004*n): Calibration Status Register - contains success flags for each
+    tested OM_DQS shift value, indicating which timing delays passed validation
+  - Internal OM_DQS timing registers: Hardware automatically selects and applies the optimal
+    data strobe timing delay from the successful calibration range
+  - LIOCFGCS register timing fields: May be updated with optimized sampling delays
+
+  The calibration process tests all possible data strobe (OM_DQS) timing delays and identifies
+  which ones provide reliable data reception. The hardware then automatically configures the
+  optimal timing for subsequent high-speed read operations.
+
+  Protocol Compatibility:
+  - Standard SPI (1S-1S-1S): Basic calibration for timing optimization
+  - Octal DDR (8D-8D-8D): Critical for high-speed data integrity
+  - Automatically uses current protocol's command format and timing
+
+  Prerequisites:
+  - Flash device must be in appropriate protocol mode
+  - Preamble pattern address must contain valid, known data
+  - Device must not be busy with other operations
+
+  Parameters: p_ctrl - Pointer to OSPI instance control structure
+              p_calibration_data - Pointer to structure for storing calibration data (can be NULL)
+
+  Return: FSP_SUCCESS - Auto-calibration completed successfully
+          FSP_ERR_DEVICE_BUSY - Auto-calibration already in progress
+          FSP_ERR_CALIBRATE_FAILED - Auto-calibration failed
+          FSP_ERR_ASSERTION - Invalid parameter
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl)
+fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_calibration_data *p_calibration_data)
 {
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
   R_XSPI0_Type *const             p_OSPI        = p_ctrl->p_reg;
   fsp_err_t                       ret           = FSP_SUCCESS;
   T_mc80_ospi_extended_cfg const *p_cfg_extend  = p_ctrl->p_cfg->p_extend;
@@ -1091,10 +1400,36 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl)
     return FSP_ERR_DEVICE_BUSY;
   }
 
+  // Save timing parameters before calibration if structure provided
+  if (NULL != p_calibration_data)
+  {
+    // Clear the structure
+    memset(p_calibration_data, 0, sizeof(T_mc80_ospi_calibration_data));
+    p_calibration_data->channel = (uint8_t)channel;
+
+    // Save DQS shift value from WRAPCFG register
+    if (MC80_OSPI_DEVICE_NUMBER_0 == channel)
+    {
+      p_calibration_data->before_calibration.wrapcfg_dssft = (p_OSPI->WRAPCFG & OSPI_WRAPCFG_DSSFTCS0_Msk) >> OSPI_WRAPCFG_DSSFTCS0_Pos;
+    }
+    else
+    {
+      p_calibration_data->before_calibration.wrapcfg_dssft = (p_OSPI->WRAPCFG & OSPI_WRAPCFG_DSSFTCS1_Msk) >> OSPI_WRAPCFG_DSSFTCS1_Pos;
+    }
+
+    // Save SDR and DDR timing parameters from LIOCFGCS register
+    uint32_t liocfg_value = p_OSPI->LIOCFGCS[channel];
+    p_calibration_data->before_calibration.liocfg_sdrsmpsft = (liocfg_value & OSPI_LIOCFGCSN_SDRSMPSFT_Msk) >> OSPI_LIOCFGCSN_SDRSMPSFT_Pos;
+    p_calibration_data->before_calibration.liocfg_ddrsmpex = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
+
+    // Save current calibration status
+    p_calibration_data->before_calibration.casttcs_value = p_OSPI->CASTTCS[channel];
+  }
+
   const uint8_t command_bytes     = (uint8_t)p_cmd_set->command_bytes;
   uint16_t      read_command      = p_cmd_set->read_command;
   const uint8_t read_dummy_cycles = p_cmd_set->read_dummy_cycles;
-  const uint8_t address_bytes     = MC80_OSPI_PRV_ADDR_BYTES_TO_LENGTH(p_cmd_set->address_bytes);
+  const uint8_t address_bytes     = (uint8_t)(p_cmd_set->address_bytes + 1U);
 
   // If using 1 command byte, shift the read command over as the peripheral expects
   if (1U == command_bytes)
@@ -1104,30 +1439,170 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl)
 
   p_OSPI->CCCTLCS[channel].CCCTL1        = (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) & OSPI_CCCTL1CSn_CACMDSIZE_Msk) | (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) & OSPI_CCCTL1CSn_CAADDSIZE_Msk) | (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) | (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) | (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) & OSPI_CCCTL1CSn_CARDLATE_Msk);
   p_OSPI->CCCTLCS[channel].CCCTL2        = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
-  p_OSPI->CCCTLCS[channel].CCCTL3        = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
 
-  // Configure auto-calibration
+  // Set calibration address - use flash start address if preamble address is invalid
+  uint32_t calibration_address = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
+  if (calibration_address == 0)
+  {
+    // Use start of flash memory if no specific pattern address is configured
+    if (channel == MC80_OSPI_DEVICE_NUMBER_0)
+    {
+      calibration_address = 0x00000000;
+    }
+    else
+    {
+      calibration_address = 0x10000000;
+    }
+  }
+  p_OSPI->CCCTLCS[channel].CCCTL3        = calibration_address;
+
+  // Set preamble patterns from configuration or use defaults
+  if (NULL != p_cfg_extend->p_autocalibration_preamble_patterns)
+  {
+    p_OSPI->CCCTLCS[channel].CCCTL4        = p_cfg_extend->p_autocalibration_preamble_patterns[0];  // Pattern 0
+    p_OSPI->CCCTLCS[channel].CCCTL5        = p_cfg_extend->p_autocalibration_preamble_patterns[1];  // Pattern 1
+    p_OSPI->CCCTLCS[channel].CCCTL6        = p_cfg_extend->p_autocalibration_preamble_patterns[2];  // Pattern 2
+    p_OSPI->CCCTLCS[channel].CCCTL7        = p_cfg_extend->p_autocalibration_preamble_patterns[3];  // Pattern 3
+  }
+  else
+  {
+    // Use default patterns if none provided
+    p_OSPI->CCCTLCS[channel].CCCTL4        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0;  // Pattern 0
+    p_OSPI->CCCTLCS[channel].CCCTL5        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1;  // Pattern 1
+    p_OSPI->CCCTLCS[channel].CCCTL6        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2;  // Pattern 2
+    p_OSPI->CCCTLCS[channel].CCCTL7        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3;  // Pattern 3
+  }
+
+  // Configure auto-calibration parameters
   p_OSPI->CCCTLCS[channel].CCCTL0        = (0x1FU << OSPI_CCCTL0CSn_CAITV_Pos) | (0x1U << OSPI_CCCTL0CSn_CANOWR_Pos) | (0x1FU << OSPI_CCCTL0CSn_CASFTEND_Pos);
 
   // Start auto-calibration
   p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN = 1;
 
-  // Wait for calibration to complete
-  while (p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN != 0)
+  // Wait for calibration to complete by checking interrupt flags with timeout
+  uint32_t timeout_count = 0;
+  const uint32_t CALIBRATION_TIMEOUT = 100000;  // Timeout counter limit
+
+  while ((0 == ((p_OSPI->INTS >> (OSPI_INTS_CASUCCS0_Pos + channel)) & 0x01)) &&
+         (0 == ((p_OSPI->INTS >> (OSPI_INTS_CAFAILCS0_Pos + channel)) & 0x01)) &&
+         (timeout_count < CALIBRATION_TIMEOUT))
   {
     __NOP();  // Breakpoint for calibration wait
+    timeout_count++;
   }
 
-  // Check if calibration was successful
-  if (0 != (p_OSPI->INTS & (1U << (OSPI_INTS_CAFAILCS0_Pos + channel))))
-  {
-    ret          = FSP_ERR_CALIBRATE_FAILED;
+  // Disable automatic calibration
+  p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN = 0;
 
+  // Check calibration result
+  if (timeout_count >= CALIBRATION_TIMEOUT)
+  {
+    // Calibration timed out
+    ret = FSP_ERR_CALIBRATE_FAILED;
+  }
+  else if (1 == ((p_OSPI->INTS >> (OSPI_INTS_CASUCCS0_Pos + channel)) & 0x01))
+  {
+    // Calibration succeeded
+    ret = FSP_SUCCESS;
+    // Clear automatic calibration success status
+    p_OSPI->INTC = (uint32_t)1 << (OSPI_INTS_CASUCCS0_Pos + channel);
+  }
+  else if (1 == ((p_OSPI->INTS >> (OSPI_INTS_CAFAILCS0_Pos + channel)) & 0x01))
+  {
+    // Calibration failed
+    ret = FSP_ERR_CALIBRATE_FAILED;
     // Clear automatic calibration failure status
     p_OSPI->INTC = (uint32_t)1 << (OSPI_INTS_CAFAILCS0_Pos + channel);
   }
+  else
+  {
+    // Unexpected state - neither success nor failure flag set
+    ret = FSP_ERR_CALIBRATE_FAILED;
+  }
+
+  // Save timing parameters after calibration if structure provided
+  if (NULL != p_calibration_data)
+  {
+    // Set calibration result
+    p_calibration_data->calibration_success = (FSP_SUCCESS == ret);
+
+    // Save DQS shift value from WRAPCFG register
+    if (MC80_OSPI_DEVICE_NUMBER_0 == channel)
+    {
+      p_calibration_data->after_calibration.wrapcfg_dssft = (p_OSPI->WRAPCFG & OSPI_WRAPCFG_DSSFTCS0_Msk) >> OSPI_WRAPCFG_DSSFTCS0_Pos;
+    }
+    else
+    {
+      p_calibration_data->after_calibration.wrapcfg_dssft = (p_OSPI->WRAPCFG & OSPI_WRAPCFG_DSSFTCS1_Msk) >> OSPI_WRAPCFG_DSSFTCS1_Pos;
+    }
+
+    // Save SDR and DDR timing parameters from LIOCFGCS register
+    uint32_t liocfg_value = p_OSPI->LIOCFGCS[channel];
+    p_calibration_data->after_calibration.liocfg_sdrsmpsft = (liocfg_value & OSPI_LIOCFGCSN_SDRSMPSFT_Msk) >> OSPI_LIOCFGCSN_SDRSMPSFT_Pos;
+    p_calibration_data->after_calibration.liocfg_ddrsmpex = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
+
+    // Save calibration status after calibration
+    p_calibration_data->after_calibration.casttcs_value = p_OSPI->CASTTCS[channel];
+  }
 
   return ret;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Read JEDEC identification data from flash device using RDID command (0x9F)
+               Returns Manufacturer ID, Memory Type, and Memory Density
+
+  Parameters: p_ctrl - Pointer to instance control structure
+              p_id - Pointer to buffer for ID data (minimum 3 bytes)
+              id_length - Number of ID bytes to read (typically 3)
+
+  Return: FSP_SUCCESS - ID read successfully
+          FSP_ERR_ASSERTION - Invalid parameters
+          Error code from direct transfer operation
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_id, uint32_t id_length)
+{
+  // Parameter validation
+  if ((NULL == p_ctrl) || (NULL == p_id) || (0 == id_length) || (id_length > 8))
+  {
+    return FSP_ERR_ASSERTION;
+  }
+
+  // Ensure the instance is open
+  if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+  {
+    return FSP_ERR_NOT_OPEN;
+  }
+
+  // Clear ID buffer
+  for (uint32_t i = 0; i < id_length; i++)
+  {
+    p_id[i] = 0;
+  }
+
+  // Setup direct transfer structure for RDID command
+  T_mc80_ospi_direct_transfer transfer = {0};
+  transfer.command        = MX25_CMD_RDID;      // 0x9F - Read Identification command
+  transfer.command_length = 1;                  // Single byte command
+  transfer.address        = 0;                  // No address for RDID
+  transfer.address_length = 0;                  // No address bytes
+  transfer.data_length    = (uint8_t)id_length; // Number of ID bytes to read
+  transfer.dummy_cycles   = 0;                  // No dummy cycles for RDID
+
+  // Execute read command using direct transfer
+  fsp_err_t err = Mc80_ospi_direct_transfer(p_ctrl, &transfer, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Copy received data to output buffer
+  for (uint32_t i = 0; i < id_length; i++)
+  {
+    p_id[i] = transfer.data_bytes[i];
+  }
+
+  return FSP_SUCCESS;
 }
 
 #if MC80_OSPI_CFG_XIP_SUPPORT_ENABLE
@@ -1143,10 +1618,19 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl)
 -----------------------------------------------------------------------------------------------------*/
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
 {
-  R_XSPI0_Type *const    p_reg                = p_ctrl->p_reg;
-  const T_mc80_ospi_cfg *p_cfg                = p_ctrl->p_cfg;
-  volatile uint8_t      *p_dummy_read_address = (volatile uint8_t *)((MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel) ? MC80_OSPI_DEVICE_0_START_ADDRESS : MC80_OSPI_DEVICE_1_START_ADDRESS);
-  volatile uint8_t       dummy_read           = 0;
+  R_XSPI0_Type *const    p_reg = p_ctrl->p_reg;
+  const T_mc80_ospi_cfg *p_cfg = p_ctrl->p_cfg;
+  volatile uint8_t      *p_dummy_read_address;
+  volatile uint8_t       dummy_read = 0;
+
+  if (MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel)
+  {
+    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_0_START_ADDRESS;
+  }
+  else
+  {
+    p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_1_START_ADDRESS;
+  }
 
   // Clear the pre-fetch buffer for this bank so the next read is guaranteed to use the XiP code
   #if MC80_OSPI_CFG_PREFETCH_FUNCTION

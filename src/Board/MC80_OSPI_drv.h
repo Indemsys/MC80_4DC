@@ -32,6 +32,12 @@
 // MC80 OSPI constants
 #define MC80_OSPI_ERASE_SIZE_CHIP_ERASE              (0xFFFFFFFFU)  // Special value for chip erase
 
+// Default preamble patterns for auto-calibration (based on FSP library)
+#define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0         (0xFFFF0000U)
+#define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1         (0x000800FFU)
+#define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2         (0x00FFF700U)
+#define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3         (0xF700F708U)
+
 /*-----------------------------------------------------------------------------------------------------
   OSPI Flash chip select
 -----------------------------------------------------------------------------------------------------*/
@@ -275,6 +281,31 @@ typedef struct st_mc80_ospi_status
 } T_mc80_ospi_status;
 
 /*-----------------------------------------------------------------------------------------------------
+  MC80 OSPI Calibration data structure - stores timing parameters before and after calibration
+-----------------------------------------------------------------------------------------------------*/
+typedef struct st_mc80_ospi_calibration_data
+{
+  struct
+  {
+    uint32_t wrapcfg_dssft;     // DQS shift value from WRAPCFG register (bits 12:8 for CS0, 28:24 for CS1)
+    uint32_t liocfg_sdrsmpsft;  // SDR sampling shift from LIOCFGCS register (bits 27:24)
+    uint32_t liocfg_ddrsmpex;   // DDR sampling extension from LIOCFGCS register (bits 31:28)
+    uint32_t casttcs_value;     // Calibration status - success flags for OM_DQS shift values
+  } before_calibration;         // Parameters before calibration
+
+  struct
+  {
+    uint32_t wrapcfg_dssft;     // DQS shift value from WRAPCFG register (bits 12:8 for CS0, 28:24 for CS1)
+    uint32_t liocfg_sdrsmpsft;  // SDR sampling shift from LIOCFGCS register (bits 27:24)
+    uint32_t liocfg_ddrsmpex;   // DDR sampling extension from LIOCFGCS register (bits 31:28)
+    uint32_t casttcs_value;     // Calibration status - success flags for OM_DQS shift values
+  } after_calibration;          // Parameters after calibration
+
+  bool     calibration_success; // Overall calibration result (true = success, false = failed)
+  uint8_t  channel;             // OSPI channel (0 or 1)
+} T_mc80_ospi_calibration_data;
+
+/*-----------------------------------------------------------------------------------------------------
   MC80 OSPI Direct transfer structure
 -----------------------------------------------------------------------------------------------------*/
 typedef struct st_mc80_ospi_direct_transfer
@@ -360,6 +391,7 @@ typedef struct st_mc80_ospi_extended_cfg
   T_mc80_ospi_table const*          p_xspi_command_set;                       // Additional protocol command sets; if additional protocol commands set are not used set this to NULL
   T_mc80_ospi_ds_timing_delay       data_latch_delay_clocks;                  // Delay after assertion of the DS signal where data should be latched
   uint8_t*                          p_autocalibration_preamble_pattern_addr;  // OctaFlash memory address holding the preamble pattern
+  uint32_t*                         p_autocalibration_preamble_patterns;      // Pointer to array of 4 preamble patterns for calibration
 
   transfer_instance_t const* p_lower_lvl_transfer;                            // DMA Transfer instance used for data transmission
 } T_mc80_ospi_extended_cfg;
@@ -405,8 +437,8 @@ typedef struct st_mc80_ospi_api
   fsp_err_t (* spiProtocolSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_protocol spi_protocol);
   fsp_err_t (* xipEnter)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* xipExit)(T_mc80_ospi_instance_ctrl * const p_ctrl);
-  fsp_err_t (* directWrite)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint32_t const bytes, bool const read_after_write);
-  fsp_err_t (* directRead)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_dest, uint32_t const bytes);
+  fsp_err_t (* directWrite)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint32_t const address, uint32_t const bytes, bool const read_after_write);
+  fsp_err_t (* directRead)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_dest, uint32_t const address, uint32_t const bytes);
   fsp_err_t (* directTransfer)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_direct_transfer * const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
   fsp_err_t (* bankSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint32_t bank);
 } T_mc80_ospi_api;
@@ -426,8 +458,8 @@ typedef struct st_mc80_ospi_instance
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_cfg const* const p_cfg);
 fsp_err_t Mc80_ospi_close(T_mc80_ospi_instance_ctrl* const p_ctrl);
-fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint32_t const bytes, bool const read_after_write);
-fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const bytes);
+fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint32_t const address, uint32_t const bytes, bool const read_after_write);
+fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes);
 fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_direct_transfer* const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_protocol spi_protocol);
 fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl* const p_ctrl);
@@ -435,7 +467,8 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint8_t* const p_dest, uint32_t byte_count);
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_device_address, uint32_t byte_count);
 fsp_err_t Mc80_ospi_status_get(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_status* const p_status);
+fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_id, uint32_t id_length);
 fsp_err_t Mc80_ospi_bank_set(T_mc80_ospi_instance_ctrl* const p_ctrl, uint32_t bank);
-fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl* const p_ctrl);
+fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_calibration_data* const p_calibration_data);
 
 #endif  // MC80_OSPI_DRV_H

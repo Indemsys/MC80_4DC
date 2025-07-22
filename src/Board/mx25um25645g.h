@@ -165,4 +165,46 @@
 #define MX25UM25645G_NUM_SECTORS    8192
 #define MX25UM25645G_JEDEC_ID       0xC2, 0x80, 0x39
 
+// =============================================================================
+// Read Identification (RDID) Instruction for MX25UM25645G
+// =============================================================================
+//
+// The RDID command (opcode 0x9F) allows the host to read the Manufacturer ID,
+// Memory Type, and Memory Density of the flash device.
+//
+// Protocol (Standard SPI):
+//   1. Pull CS# (chip select) low to select the device.
+//   2. Send command byte: 0x9F
+//   3. Read at least 3 bytes in response:
+//        Byte 1: Manufacturer ID     (should be 0xC2 for Macronix)
+//        Byte 2: Memory Type         (e.g., 0x38)
+//        Byte 3: Memory Density      (e.g., 0x39 for 256Mbit device)
+//   4. Pull CS# high to deselect the device.
+//
+// Example sequence (Standard SPI):
+//   CS# = LOW
+//   Send: 0x9F
+//   Receive: [0xC2] [0x38] [0x39]
+//   CS# = HIGH
+//
+// Parsing the result:
+//   - Manufacturer ID (0xC2): Macronix
+//   - Memory Type     (0x38): MX25UM series
+//   - Memory Density  (0x39): 256Mbit (see datasheet Table 10-2)
+//
+// Code Example:
+//
+//   uint8_t tx[1] = {0x9F};
+//   uint8_t rx[3] = {0};
+//   CS_LOW();                // Pull CS# low
+//   SPI_Transmit(tx, 1);     // Send RDID command
+//   SPI_Receive(rx, 3);      // Read 3 bytes of ID
+//   CS_HIGH();               // Pull CS# high
+//
+//   // rx[0] = Manufacturer ID, rx[1] = Memory Type, rx[2] = Memory Density
+//
+// =============================================================================
+
+
+
 #endif /* MX25UM25645G_H */
