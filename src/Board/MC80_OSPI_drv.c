@@ -11,76 +11,76 @@
 -----------------------------------------------------------------------------------------------------*/
 
 // "MC80" in ASCII. Used to determine if the control block is open
-#define MC80_OSPI_PRV_OPEN                                  (0x4D433830U)  // "MC80"
+#define MC80_OSPI_PRV_OPEN                               (0x4D433830U)  // "MC80"
 
-#define MC80_OSPI_PRV_CHANNELS_PER_UNIT                     (2U)
-#define MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT                   (MC80_OSPI_PRV_CHANNELS_PER_UNIT)
-#define MC80_OSPI_PRV_UNIT_CHANNELS_MASK                    ((1U << MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT) - 1U)
+#define MC80_OSPI_PRV_CHANNELS_PER_UNIT                  (2U)
+#define MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT                (MC80_OSPI_PRV_CHANNELS_PER_UNIT)
+#define MC80_OSPI_PRV_UNIT_CHANNELS_MASK                 ((1U << MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT) - 1U)
 
 // Mask of all channels for a given OSPI unit
-#define MC80_OSPI_PRV_UNIT_MASK(p_ext_cfg)                  (MC80_OSPI_PRV_UNIT_CHANNELS_MASK << (((p_ext_cfg)->ospi_unit) * MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT))
+#define MC80_OSPI_PRV_UNIT_MASK(p_ext_cfg)               (MC80_OSPI_PRV_UNIT_CHANNELS_MASK << (((p_ext_cfg)->ospi_unit) * MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT))
 
 // Individual bit mask for a single channel on a given OSPI unit
-#define MC80_OSPI_PRV_CH_MASK(p_ext_cfg)                    ((1U << ((p_ext_cfg)->channel)) << (((p_ext_cfg)->ospi_unit) * MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT))
+#define MC80_OSPI_PRV_CH_MASK(p_ext_cfg)                 ((1U << ((p_ext_cfg)->channel)) << (((p_ext_cfg)->ospi_unit) * MC80_OSPI_PRV_UNIT_CHANNELS_SHIFT))
 
 // Indicates the provided protocol mode requires the Data-Strobe signal
-#define MC80_OSPI_PRV_PROTOCOL_USES_DS_SIGNAL(protocol)     ((bool)(((uint32_t)(protocol)) & 0x200UL))
+#define MC80_OSPI_PRV_PROTOCOL_USES_DS_SIGNAL(protocol)  ((bool)(((uint32_t)(protocol)) & 0x200UL))
 
 // Number of bytes combined into a single transaction for memory-mapped writes
-#define MC80_OSPI_PRV_COMBINATION_WRITE_LENGTH              (2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U))
+#define MC80_OSPI_PRV_COMBINATION_WRITE_LENGTH           (2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U))
 
-#define MC80_OSPI_PRV_BMCTL_DEFAULT_VALUE                   (0x0C)
+#define MC80_OSPI_PRV_BMCTL_DEFAULT_VALUE                (0x0C)
 
-#define MC80_OSPI_PRV_CMCFG_1BYTE_VALUE_MASK                (0xFF00U)
-#define MC80_OSPI_PRV_CMCFG_2BYTE_VALUE_MASK                (0xFFFFU)
+#define MC80_OSPI_PRV_CMCFG_1BYTE_VALUE_MASK             (0xFF00U)
+#define MC80_OSPI_PRV_CMCFG_2BYTE_VALUE_MASK             (0xFFFFU)
 
-#define MC80_OSPI_PRV_AUTOCALIBRATION_DATA_SIZE             (0xFU)
-#define MC80_OSPI_PRV_AUTOCALIBRATION_LATENCY_CYCLES        (0U)
+#define MC80_OSPI_PRV_AUTOCALIBRATION_DATA_SIZE          (0xFU)
+#define MC80_OSPI_PRV_AUTOCALIBRATION_LATENCY_CYCLES     (0U)
 
-#define MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE                 (0xF0U)
-#define MC80_OSPI_PRV_ADDRESS_REPLACE_ENABLE_BITS           (MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << OSPI_CMCFG0CSN_ADDRPEN_Pos)
-#define MC80_OSPI_PRV_ADDRESS_REPLACE_MASK                  (~(MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << 24))
+#define MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE              (0xF0U)
+#define MC80_OSPI_PRV_ADDRESS_REPLACE_ENABLE_BITS        (MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << OSPI_CMCFG0CSN_ADDRPEN_Pos)
+#define MC80_OSPI_PRV_ADDRESS_REPLACE_MASK               (~(MC80_OSPI_PRV_ADDRESS_REPLACE_VALUE << 24))
 
-#define MC80_OSPI_PRV_WORD_ACCESS_SIZE                      (4U)
-#define MC80_OSPI_PRV_HALF_WORD_ACCESS_SIZE                 (2U)
+#define MC80_OSPI_PRV_WORD_ACCESS_SIZE                   (4U)
+#define MC80_OSPI_PRV_HALF_WORD_ACCESS_SIZE              (2U)
 
-#define MC80_OSPI_PRV_DIRECT_ADDR_AND_DATA_MASK             (7U)
-#define MC80_OSPI_PRV_PAGE_SIZE_BYTES                       (256U)
+#define MC80_OSPI_PRV_DIRECT_ADDR_AND_DATA_MASK          (7U)
+#define MC80_OSPI_PRV_PAGE_SIZE_BYTES                    (256U)
 
-#define MC80_OSPI_PRV_DIRECT_CMD_SIZE_MASK                  (0x3U)
+#define MC80_OSPI_PRV_DIRECT_CMD_SIZE_MASK               (0x3U)
 
-#define MC80_OSPI_PRV_CDTBUF_CMD_OFFSET                     (16U)
-#define MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET               (24U)
-#define MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK              (0xFFU)
-#define MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT             (8U)
-#define MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK              (0xFFFFU)
+#define MC80_OSPI_PRV_CDTBUF_CMD_OFFSET                  (16U)
+#define MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET            (24U)
+#define MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK           (0xFFU)
+#define MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT          (8U)
+#define MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK           (0xFFFFU)
 
 // BMCTL0 register values - bits 4-7 must always be set to 1 per documentation
-#define MC80_OSPI_PRV_BMCTL0_RESERVED_BITS                  (0xF0)  // Bits 4-7 must be 1
-#define MC80_OSPI_PRV_BMCTL0_DISABLED_VALUE                 (0xF0)  // 0b1111'0000 - Reserved bits + disabled
-#define MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE                (0xF5)  // 0b1111'0101 - Reserved bits + read-only
-#define MC80_OSPI_PRV_BMCTL0_WRITE_ONLY_VALUE               (0xFA)  // 0b1111'1010 - Reserved bits + write-only
-#define MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE               (0xFF)  // 0b1111'1111 - Reserved bits + read/write
+#define MC80_OSPI_PRV_BMCTL0_RESERVED_BITS               (0xF0)  // Bits 4-7 must be 1
+#define MC80_OSPI_PRV_BMCTL0_DISABLED_VALUE              (0xF0)  // 0b1111'0000 - Reserved bits + disabled
+#define MC80_OSPI_PRV_BMCTL0_READ_ONLY_VALUE             (0xF5)  // 0b1111'0101 - Reserved bits + read-only
+#define MC80_OSPI_PRV_BMCTL0_WRITE_ONLY_VALUE            (0xFA)  // 0b1111'1010 - Reserved bits + write-only
+#define MC80_OSPI_PRV_BMCTL0_READ_WRITE_VALUE            (0xFF)  // 0b1111'1111 - Reserved bits + read/write
 
-#define MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK            (0x03 << OSPI_BMCTL1_PBUFCLRCH0_Pos)
-#define MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK    (0x03 << OSPI_BMCTL1_MWRPUSHCH0_Pos)
+#define MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK         (0x03 << OSPI_BMCTL1_PBUFCLRCH0_Pos)
+#define MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK (0x03 << OSPI_BMCTL1_MWRPUSHCH0_Pos)
 
-#define MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK                  (0x03 << OSPI_COMSTT_MEMACCCH0_Pos)
+#define MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK               (0x03 << OSPI_COMSTT_MEMACCCH0_Pos)
 
-#define MC80_OSPI_SOFTWARE_DELAY                            (50U)
+#define MC80_OSPI_SOFTWARE_DELAY                         (50U)
 
 // These are used as modulus checking, make sure they are powers of 2
-#define MC80_OSPI_PRV_CPU_ACCESS_LENGTH                     (8U)
-#define MC80_OSPI_PRV_CPU_ACCESS_ALIGNMENT                  (8U)
+#define MC80_OSPI_PRV_CPU_ACCESS_LENGTH                  (8U)
+#define MC80_OSPI_PRV_CPU_ACCESS_ALIGNMENT               (8U)
 
-#define MC80_OSPI_PRV_PROTOCOL_USES_DS_MASK                 (0x200U)
+#define MC80_OSPI_PRV_PROTOCOL_USES_DS_MASK              (0x200U)
 
-#define MC80_OSPI_PRV_UINT32_BITS                           (32)
+#define MC80_OSPI_PRV_UINT32_BITS                        (32)
 
-#define MC80_OSPI_MAX_WRITE_ENABLE_LOOPS                    (5)
+#define MC80_OSPI_MAX_WRITE_ENABLE_LOOPS                 (5)
 
 // Number of address bytes in 4 byte address mode
-#define MC80_OSPI_4_BYTE_ADDRESS                            (4U)
+#define MC80_OSPI_4_BYTE_ADDRESS                         (4U)
 
 /*-----------------------------------------------------------------------------------------------------
   Static function prototypes
@@ -297,7 +297,7 @@ fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl *p_ctrl,
 
   uint32_t bytes_remaining = bytes;
   uint32_t current_address = address;
-  uint32_t offset = 0;
+  uint32_t offset          = 0;
 
   // Process data in chunks of up to 8 bytes
   while (bytes_remaining > 0)
@@ -316,7 +316,7 @@ fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl *p_ctrl,
     T_mc80_ospi_direct_transfer direct_transfer = {
       .command        = p_cmd_set->program_command,
       .command_length = (uint8_t)p_cmd_set->command_bytes,
-      .address        = current_address,  // Use current address
+      .address        = current_address,                           // Use current address
       .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),  // Include address
       .data_length    = (uint8_t)chunk_size,
       .dummy_cycles   = p_cmd_set->program_dummy_cycles,
@@ -380,7 +380,7 @@ fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *cons
 
   uint32_t bytes_remaining = bytes;
   uint32_t current_address = address;
-  uint32_t offset = 0;
+  uint32_t offset          = 0;
 
   // Process data in chunks of up to 8 bytes
   while (bytes_remaining > 0)
@@ -399,7 +399,7 @@ fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *cons
     T_mc80_ospi_direct_transfer direct_transfer = {
       .command        = p_cmd_set->read_command,
       .command_length = (uint8_t)p_cmd_set->command_bytes,
-      .address        = current_address,  // Use current address
+      .address        = current_address,                           // Use current address
       .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),  // Include address
       .data_length    = (uint8_t)chunk_size,
       .dummy_cycles   = p_cmd_set->read_dummy_cycles,
@@ -728,11 +728,11 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     }
   }
 
-  T_mc80_ospi_cfg const *p_cfg                  = p_ctrl->p_cfg;
-  uint16_t               erase_command          = 0;
+  T_mc80_ospi_cfg const *p_cfg         = p_ctrl->p_cfg;
+  uint16_t               erase_command = 0;
   uint32_t               chip_address_base;
   uint32_t               chip_address;
-  bool                   send_address           = true;
+  bool                   send_address = true;
 
   if (p_ctrl->channel)
   {
@@ -742,7 +742,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   {
     chip_address_base = MC80_OSPI_DEVICE_0_START_ADDRESS;
   }
-  chip_address = (uint32_t)p_device_address - chip_address_base;
+  chip_address                                  = (uint32_t)p_device_address - chip_address_base;
 
   T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
 
@@ -1232,13 +1232,13 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   }
 
   // Load the transaction configuration and address into command buffer
-  p_reg->CDBUF[0].CDT = cdtbuf0;   // Command Data Transaction register
+  p_reg->CDBUF[0].CDT = cdtbuf0;              // Command Data Transaction register
   p_reg->CDBUF[0].CDA = p_transfer->address;  // Command Data Address register
 
   // For write operations: load data into the data registers before starting transaction
   if (MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE == direction)
   {
-    p_reg->CDBUF[0].CDD0 = (uint32_t)(p_transfer->data_u64 & UINT32_MAX);  // Lower 32 bits
+    p_reg->CDBUF[0].CDD0 = (uint32_t)(p_transfer->data_u64 & UINT32_MAX);                    // Lower 32 bits
     if (p_transfer->data_length > sizeof(uint32_t))
     {
       p_reg->CDBUF[0].CDD1 = (uint32_t)(p_transfer->data_u64 >> MC80_OSPI_PRV_UINT32_BITS);  // Upper 32 bits
@@ -1249,13 +1249,13 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   p_reg->CDCTL0_b.TRREQ = 1;  // Initiate transaction
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
-    __NOP();  // Breakpoint for transaction completion wait
+    __NOP();                  // Breakpoint for transaction completion wait
   }
 
   // For read operations: retrieve data from the data registers after transaction completes
   if (MC80_OSPI_DIRECT_TRANSFER_DIR_READ == direction)
   {
-    p_transfer->data_u64 = p_reg->CDBUF[0].CDD0;  // Read lower 32 bits
+    p_transfer->data_u64 = p_reg->CDBUF[0].CDD0;                                                // Read lower 32 bits
     if (p_transfer->data_length > sizeof(uint32_t))
     {
       p_transfer->data_u64 |= (((uint64_t)p_reg->CDBUF[0].CDD1) << MC80_OSPI_PRV_UINT32_BITS);  // Combine with upper 32 bits
@@ -1418,12 +1418,12 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
     }
 
     // Save SDR and DDR timing parameters from LIOCFGCS register
-    uint32_t liocfg_value = p_OSPI->LIOCFGCS[channel];
+    uint32_t liocfg_value                                   = p_OSPI->LIOCFGCS[channel];
     p_calibration_data->before_calibration.liocfg_sdrsmpsft = (liocfg_value & OSPI_LIOCFGCSN_SDRSMPSFT_Msk) >> OSPI_LIOCFGCSN_SDRSMPSFT_Pos;
-    p_calibration_data->before_calibration.liocfg_ddrsmpex = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
+    p_calibration_data->before_calibration.liocfg_ddrsmpex  = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
 
     // Save current calibration status
-    p_calibration_data->before_calibration.casttcs_value = p_OSPI->CASTTCS[channel];
+    p_calibration_data->before_calibration.casttcs_value    = p_OSPI->CASTTCS[channel];
   }
 
   const uint8_t command_bytes     = (uint8_t)p_cmd_set->command_bytes;
@@ -1437,11 +1437,11 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
     read_command = (uint16_t)((read_command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_SHIFT);
   }
 
-  p_OSPI->CCCTLCS[channel].CCCTL1        = (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) & OSPI_CCCTL1CSn_CACMDSIZE_Msk) | (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) & OSPI_CCCTL1CSn_CAADDSIZE_Msk) | (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) | (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) | (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) & OSPI_CCCTL1CSn_CARDLATE_Msk);
-  p_OSPI->CCCTLCS[channel].CCCTL2        = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
+  p_OSPI->CCCTLCS[channel].CCCTL1 = (((uint32_t)command_bytes << OSPI_CCCTL1CSn_CACMDSIZE_Pos) & OSPI_CCCTL1CSn_CACMDSIZE_Msk) | (((uint32_t)address_bytes << OSPI_CCCTL1CSn_CAADDSIZE_Pos) & OSPI_CCCTL1CSn_CAADDSIZE_Msk) | (0xFU << OSPI_CCCTL1CSn_CADATASIZE_Pos) | (0U << OSPI_CCCTL1CSn_CAWRLATE_Pos) | (((uint32_t)read_dummy_cycles << OSPI_CCCTL1CSn_CARDLATE_Pos) & OSPI_CCCTL1CSn_CARDLATE_Msk);
+  p_OSPI->CCCTLCS[channel].CCCTL2 = (uint32_t)read_command << OSPI_CCCTL2CSn_CARDCMD_Pos;
 
   // Set calibration address - use flash start address if preamble address is invalid
-  uint32_t calibration_address = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
+  uint32_t calibration_address    = (uint32_t)p_cfg_extend->p_autocalibration_preamble_pattern_addr;
   if (calibration_address == 0)
   {
     // Use start of flash memory if no specific pattern address is configured
@@ -1454,34 +1454,55 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
       calibration_address = 0x10000000;
     }
   }
-  p_OSPI->CCCTLCS[channel].CCCTL3        = calibration_address;
+  else
+  {
+    // Convert XIP address to physical flash address for calibration
+    if (channel == MC80_OSPI_DEVICE_NUMBER_0)
+    {
+      if (calibration_address >= MC80_OSPI_DEVICE_0_START_ADDRESS)
+      {
+        calibration_address = calibration_address - MC80_OSPI_DEVICE_0_START_ADDRESS;
+      }
+    }
+    else
+    {
+      if (calibration_address >= MC80_OSPI_DEVICE_1_START_ADDRESS)
+      {
+        calibration_address = calibration_address - MC80_OSPI_DEVICE_1_START_ADDRESS;
+      }
+    }
+  }
+  p_OSPI->CCCTLCS[channel].CCCTL3 = calibration_address;
 
   // Set preamble patterns from configuration or use defaults
   if (NULL != p_cfg_extend->p_autocalibration_preamble_patterns)
   {
-    p_OSPI->CCCTLCS[channel].CCCTL4        = p_cfg_extend->p_autocalibration_preamble_patterns[0];  // Pattern 0
-    p_OSPI->CCCTLCS[channel].CCCTL5        = p_cfg_extend->p_autocalibration_preamble_patterns[1];  // Pattern 1
-    p_OSPI->CCCTLCS[channel].CCCTL6        = p_cfg_extend->p_autocalibration_preamble_patterns[2];  // Pattern 2
-    p_OSPI->CCCTLCS[channel].CCCTL7        = p_cfg_extend->p_autocalibration_preamble_patterns[3];  // Pattern 3
+    p_OSPI->CCCTLCS[channel].CCCTL4 = p_cfg_extend->p_autocalibration_preamble_patterns[0];  // Pattern 0
+    p_OSPI->CCCTLCS[channel].CCCTL5 = p_cfg_extend->p_autocalibration_preamble_patterns[1];  // Pattern 1
+    p_OSPI->CCCTLCS[channel].CCCTL6 = p_cfg_extend->p_autocalibration_preamble_patterns[2];  // Pattern 2
+    p_OSPI->CCCTLCS[channel].CCCTL7 = p_cfg_extend->p_autocalibration_preamble_patterns[3];  // Pattern 3
   }
   else
   {
     // Use default patterns if none provided
-    p_OSPI->CCCTLCS[channel].CCCTL4        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0;  // Pattern 0
-    p_OSPI->CCCTLCS[channel].CCCTL5        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1;  // Pattern 1
-    p_OSPI->CCCTLCS[channel].CCCTL6        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2;  // Pattern 2
-    p_OSPI->CCCTLCS[channel].CCCTL7        = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3;  // Pattern 3
+    p_OSPI->CCCTLCS[channel].CCCTL4 = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0;  // Pattern 0
+    p_OSPI->CCCTLCS[channel].CCCTL5 = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1;  // Pattern 1
+    p_OSPI->CCCTLCS[channel].CCCTL6 = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2;  // Pattern 2
+    p_OSPI->CCCTLCS[channel].CCCTL7 = MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3;  // Pattern 3
   }
 
-  // Configure auto-calibration parameters
-  p_OSPI->CCCTLCS[channel].CCCTL0        = (0x1FU << OSPI_CCCTL0CSn_CAITV_Pos) | (0x1U << OSPI_CCCTL0CSn_CANOWR_Pos) | (0x1FU << OSPI_CCCTL0CSn_CASFTEND_Pos);
+  // Configure auto-calibration parameters using defined constants
+  p_OSPI->CCCTLCS[channel].CCCTL0 = (MC80_OSPI_CALIBRATION_INTERVAL_MAX << OSPI_CCCTL0CSn_CAITV_Pos) |          // CAITV: Interval between calibration patterns (2^(4+1) = 32 cycles)
+                                    (MC80_OSPI_CALIBRATION_NO_OVERWRITE_ENABLE << OSPI_CCCTL0CSn_CANOWR_Pos) |  // CANOWR: No overwrite mode enabled
+                                    (MC80_OSPI_CALIBRATION_SHIFT_START_MIN << OSPI_CCCTL0CSn_CASFTSTA_Pos) |    // CASFTSTA: Start shift value (0)
+                                    (MC80_OSPI_CALIBRATION_SHIFT_END_MAX << OSPI_CCCTL0CSn_CASFTEND_Pos);       // CASFTEND: Maximum OM_DQS shift value
 
   // Start auto-calibration
   p_OSPI->CCCTLCS[channel].CCCTL0_b.CAEN = 1;
 
   // Wait for calibration to complete by checking interrupt flags with timeout
-  uint32_t timeout_count = 0;
-  const uint32_t CALIBRATION_TIMEOUT = 100000;  // Timeout counter limit
+  uint32_t       timeout_count           = 0;
+  const uint32_t CALIBRATION_TIMEOUT     = 100000;  // Timeout counter limit
 
   while ((0 == ((p_OSPI->INTS >> (OSPI_INTS_CASUCCS0_Pos + channel)) & 0x01)) &&
          (0 == ((p_OSPI->INTS >> (OSPI_INTS_CAFAILCS0_Pos + channel)) & 0x01)) &&
@@ -1503,14 +1524,14 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
   else if (1 == ((p_OSPI->INTS >> (OSPI_INTS_CASUCCS0_Pos + channel)) & 0x01))
   {
     // Calibration succeeded
-    ret = FSP_SUCCESS;
+    ret          = FSP_SUCCESS;
     // Clear automatic calibration success status
     p_OSPI->INTC = (uint32_t)1 << (OSPI_INTS_CASUCCS0_Pos + channel);
   }
   else if (1 == ((p_OSPI->INTS >> (OSPI_INTS_CAFAILCS0_Pos + channel)) & 0x01))
   {
     // Calibration failed
-    ret = FSP_ERR_CALIBRATE_FAILED;
+    ret          = FSP_ERR_CALIBRATE_FAILED;
     // Clear automatic calibration failure status
     p_OSPI->INTC = (uint32_t)1 << (OSPI_INTS_CAFAILCS0_Pos + channel);
   }
@@ -1537,12 +1558,12 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
     }
 
     // Save SDR and DDR timing parameters from LIOCFGCS register
-    uint32_t liocfg_value = p_OSPI->LIOCFGCS[channel];
+    uint32_t liocfg_value                                  = p_OSPI->LIOCFGCS[channel];
     p_calibration_data->after_calibration.liocfg_sdrsmpsft = (liocfg_value & OSPI_LIOCFGCSN_SDRSMPSFT_Msk) >> OSPI_LIOCFGCSN_SDRSMPSFT_Pos;
-    p_calibration_data->after_calibration.liocfg_ddrsmpex = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
+    p_calibration_data->after_calibration.liocfg_ddrsmpex  = (liocfg_value & OSPI_LIOCFGCSN_DDRSMPEX_Msk) >> OSPI_LIOCFGCSN_DDRSMPEX_Pos;
 
     // Save calibration status after calibration
-    p_calibration_data->after_calibration.casttcs_value = p_OSPI->CASTTCS[channel];
+    p_calibration_data->after_calibration.casttcs_value    = p_OSPI->CASTTCS[channel];
   }
 
   return ret;
@@ -1560,7 +1581,7 @@ fsp_err_t Mc80_ospi_auto_calibrate(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_osp
           FSP_ERR_ASSERTION - Invalid parameters
           Error code from direct transfer operation
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_id, uint32_t id_length)
+fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *const p_id, uint32_t id_length)
 {
   // Parameter validation
   if ((NULL == p_ctrl) || (NULL == p_id) || (0 == id_length) || (id_length > 8))
@@ -1581,16 +1602,16 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* co
   }
 
   // Setup direct transfer structure for RDID command
-  T_mc80_ospi_direct_transfer transfer = {0};
-  transfer.command        = MX25_CMD_RDID;      // 0x9F - Read Identification command
-  transfer.command_length = 1;                  // Single byte command
-  transfer.address        = 0;                  // No address for RDID
-  transfer.address_length = 0;                  // No address bytes
-  transfer.data_length    = (uint8_t)id_length; // Number of ID bytes to read
-  transfer.dummy_cycles   = 0;                  // No dummy cycles for RDID
+  T_mc80_ospi_direct_transfer transfer = { 0 };
+  transfer.command                     = MX25_CMD_RDID;       // 0x9F - Read Identification command
+  transfer.command_length              = 1;                   // Single byte command
+  transfer.address                     = 0;                   // No address for RDID
+  transfer.address_length              = 0;                   // No address bytes
+  transfer.data_length                 = (uint8_t)id_length;  // Number of ID bytes to read
+  transfer.dummy_cycles                = 0;                   // No dummy cycles for RDID
 
   // Execute read command using direct transfer
-  fsp_err_t err = Mc80_ospi_direct_transfer(p_ctrl, &transfer, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+  fsp_err_t err                        = Mc80_ospi_direct_transfer(p_ctrl, &transfer, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
   if (FSP_SUCCESS != err)
   {
     return err;

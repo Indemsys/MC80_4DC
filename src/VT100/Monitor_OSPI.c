@@ -898,11 +898,11 @@ void OSPI_test_8d_calibration(uint8_t keycode)
       MPRINTF("Pattern %d: Expected=0x%08X, Found=0x%08X", i, expected_patterns[i], read_patterns[i]);
       if (expected_patterns[i] == read_patterns[i])
       {
-        MPRINTF(" ✓\n\r");
+        MPRINTF(" [OK]\n\r");
       }
       else
       {
-        MPRINTF(" ✗\n\r");
+        MPRINTF(" [FAIL]\n\r");
         patterns_valid = false;
       }
     }
@@ -942,6 +942,28 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     uint8_t dummy_key;
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
+  }
+
+  // Test 8D-8D-8D read before calibration
+  MPRINTF("\n\rTesting 8D-8D-8D read before calibration...\n\r");
+  uint8_t test_read_buffer[16];
+  err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, test_read_buffer, 0x00000000, 16);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("8D-8D-8D Pre-calibration Read  : SUCCESS\n\r");
+    MPRINTF("Read data: ");
+    for (int i = 0; i < 16; i++)
+    {
+      MPRINTF("%02X ", test_read_buffer[i]);
+      if ((i + 1) % 8 == 0) MPRINTF("\n\r           ");
+    }
+    MPRINTF("\n\r");
+  }
+  else
+  {
+    MPRINTF("8D-8D-8D Pre-calibration Read  : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("Note: Read failure before calibration is expected\n\r");
+    MPRINTF("      Calibration should improve read reliability\n\r");
   }
 
   // Perform calibration
@@ -1365,11 +1387,11 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
         MPRINTF("Pattern %d: Written=0x%08X, Read=0x%08X", i, patterns[i], read_patterns[i]);
         if (patterns[i] == read_patterns[i])
         {
-          MPRINTF(" ✓\n\r");
+          MPRINTF(" OK\n\r");
         }
         else
         {
-          MPRINTF(" ✗\n\r");
+          MPRINTF(" ERR\n\r");
           patterns_match = false;
         }
       }

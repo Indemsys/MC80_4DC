@@ -38,6 +38,12 @@
 #define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2         (0x00FFF700U)
 #define MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3         (0xF700F708U)
 
+// Auto-calibration parameter values
+#define MC80_OSPI_CALIBRATION_INTERVAL_MAX           (0x04U)  // CAITV: Interval between calibration patterns (2^(4+1) = 32 cycles)
+#define MC80_OSPI_CALIBRATION_NO_OVERWRITE_ENABLE    (0x1U)   // CANOWR: Skip write command during calibration
+#define MC80_OSPI_CALIBRATION_SHIFT_START_MIN        (0x0U)   // CASFTSTA: Minimum OM_DQS shift start value (0)
+#define MC80_OSPI_CALIBRATION_SHIFT_END_MAX          (0x1FU)  // CASFTEND: Maximum OM_DQS shift value (31)
+
 /*-----------------------------------------------------------------------------------------------------
   OSPI Flash chip select
 -----------------------------------------------------------------------------------------------------*/
