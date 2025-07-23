@@ -11,15 +11,15 @@
 -----------------------------------------------------------------------------------------------------*/
 // RTOS event flags for DMA notifications
 static TX_EVENT_FLAGS_GROUP g_ospi_dma_event_flags;
-static bool g_ospi_dma_event_flags_initialized = false;
+static bool                 g_ospi_dma_event_flags_initialized = false;
 
 // DMA event flag definitions
-#define OSPI_DMA_EVENT_TRANSFER_COMPLETE  (0x00000001UL)
-#define OSPI_DMA_EVENT_TRANSFER_ERROR     (0x00000002UL)
-#define OSPI_DMA_EVENT_ALL_EVENTS         (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
+#define OSPI_DMA_EVENT_TRANSFER_COMPLETE                 (0x00000001UL)
+#define OSPI_DMA_EVENT_TRANSFER_ERROR                    (0x00000002UL)
+#define OSPI_DMA_EVENT_ALL_EVENTS                        (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
 
 // DMA completion timeout (1 second = 1000 ms in ThreadX ticks, assuming 1ms tick period)
-#define OSPI_DMA_COMPLETION_TIMEOUT_MS    (1000UL)
+#define OSPI_DMA_COMPLETION_TIMEOUT_MS                   (1000UL)
 
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
@@ -105,10 +105,10 @@ static fsp_err_t                           _Mc80_ospi_protocol_specific_settings
 static fsp_err_t                           _Mc80_ospi_memory_mapped_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
-static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
-void OSPI_dma_callback(dmac_callback_args_t *p_args);
-static fsp_err_t _Ospi_dma_event_flags_initialize(void);
-static void _Ospi_dma_event_flags_cleanup(void);
+static void                                _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
+void                                       OSPI_dma_callback(dmac_callback_args_t *p_args);
+static fsp_err_t                           _Ospi_dma_event_flags_initialize(void);
+static void                                _Ospi_dma_event_flags_cleanup(void);
 
 /*-----------------------------------------------------------------------------------------------------
   Private global variables
@@ -198,7 +198,7 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
 
   // Perform xSPI Initial configuration as described in hardware manual
   // Set xSPI protocol mode
-  uint32_t liocfg                        = ((uint32_t)p_cfg->spi_protocol) << OSPI_LIOCFGCSN_PRTMD_Pos;
+  uint32_t liocfg = ((uint32_t)p_cfg->spi_protocol) << OSPI_LIOCFGCSN_PRTMD_Pos;
   // NOTE: Do NOT write to LIOCFGCS yet - we need to add timing settings first
 
   // Set xSPI drive/sampling timing
@@ -598,7 +598,7 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
           FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
           Error codes from DMA operations
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
+fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *const p_dest, uint32_t const address, uint32_t const bytes)
 {
   // Parameter validation
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
@@ -627,8 +627,8 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
   }
 
   // Get DMA transfer instance from OSPI configuration
-  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
-  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
+  T_mc80_ospi_extended_cfg const *p_cfg_extend             = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer               = p_cfg_extend->p_lower_lvl_transfer;
 
   // Configure DMA for memory-to-memory transfer
   p_transfer->p_cfg->p_info->p_src                         = (void const *)memory_mapped_address;
@@ -638,7 +638,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
   p_transfer->p_cfg->p_info->length                        = (uint16_t)bytes;
 
   // Reconfigure DMA with new settings
-  err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+  err                                                      = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
   if (FSP_SUCCESS != err)
   {
     return err;
@@ -663,7 +663,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
 
   // Verify transfer completion status using infoGet
   transfer_properties_t transfer_properties = { 0U };
-  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+  err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
   if (FSP_SUCCESS != err)
   {
     return err;
@@ -834,7 +834,7 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 
   // Verify transfer completion status using infoGet
   transfer_properties_t transfer_properties = { 0U };
-  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+  err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
   if (FSP_SUCCESS != err)
   {
     return err;
@@ -1107,6 +1107,147 @@ fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_o
   }
 
   return err;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Safely switches SPI protocol with complete flash device reset and reinitialization sequence.
+
+  This function performs a complete protocol switch sequence including:
+  1. Flash device hardware reset via RSTEN/RST commands
+  2. Flash CR2 register configuration for new protocol mode
+  3. Controller protocol settings update
+  4. Verification of successful protocol switch
+
+  Protocol Switch Sequence:
+  - For switch to 8D-8D-8D: Reset flash → Set CR2=0x02 → Switch controller to 8D-8D-8D
+  - For switch to 1S-1S-1S: Reset flash → Verify CR2=0x00 → Switch controller to 1S-1S-1S
+
+  The function ensures the flash device and controller are synchronized and operating
+  in the same protocol mode after the switch completes.
+
+  Parameters:
+    p_ctrl       - Pointer to the control structure
+    new_protocol - Target SPI protocol to switch to
+
+  Return:
+    FSP_SUCCESS              - Protocol switched successfully
+    FSP_ERR_ASSERTION        - A required pointer is NULL
+    FSP_ERR_NOT_OPEN         - Driver is not opened
+    FSP_ERR_INVALID_MODE     - Unsupported protocol specified
+    FSP_ERR_DEVICE_BUSY      - Flash device is busy
+    FSP_ERR_WRITE_FAILED     - Failed to configure flash device
+    FSP_ERR_CALIBRATE_FAILED - Failed to perform auto-calibrate
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_spi_protocol_switch_safe(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_protocol new_protocol)
+{
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+    // Validate protocol
+    if (new_protocol != MC80_OSPI_PROTOCOL_1S_1S_1S && new_protocol != MC80_OSPI_PROTOCOL_8D_8D_8D)
+    {
+      return FSP_ERR_INVALID_MODE;
+    }
+  }
+
+  fsp_err_t err = FSP_SUCCESS;
+
+  // Check if we're already in the target protocol
+  if (p_ctrl->spi_protocol == new_protocol)
+  {
+    return FSP_SUCCESS;  // Already in target protocol
+  }
+
+  // Step 1: Reset flash device to known state (always start in SPI mode)
+  err = Mc80_ospi_hardware_reset(p_ctrl);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Step 2: Set controller to Standard SPI mode first (for flash configuration)
+  if (p_ctrl->spi_protocol != MC80_OSPI_PROTOCOL_1S_1S_1S)
+  {
+    err = Mc80_ospi_spi_protocol_set(p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+    if (FSP_SUCCESS != err)
+    {
+      return err;
+    }
+  }
+
+  // Step 3: Wait for flash device to be ready
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);  // Allow flash reset to complete
+
+  // Step 4: Configure flash device for target protocol
+  if (new_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+  {
+    // Configure flash to OPI DTR mode by setting CR2 = 0x02
+
+    // Enable writing
+    T_mc80_ospi_direct_transfer write_enable_cmd = {
+      .command        = MX25_CMD_WREN,
+      .command_length = 1,
+      .address_length = 0,
+      .data_length    = 0,
+      .dummy_cycles   = 0,
+    };
+
+    _Mc80_ospi_direct_transfer(p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Write CR2 to enable OPI DTR mode
+    T_mc80_ospi_direct_transfer write_cr2_cmd = {
+      .command        = MX25_CMD_WRCR2,
+      .command_length = 1,
+      .address        = 0x00000000,  // CR2 address
+      .address_length = 4,           // 4-byte address required for CR2
+      .data           = 0x02,        // Enable OPI DTR mode
+      .data_length    = 1,
+      .dummy_cycles   = 0,
+    };
+
+    _Mc80_ospi_direct_transfer(p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Wait for flash configuration to complete
+    R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+  }
+
+  // Step 5: Switch controller to target protocol
+  err = Mc80_ospi_spi_protocol_set(p_ctrl, new_protocol);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Step 6: Verify protocol switch was successful
+  if (new_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+  {
+    // Try to read CR2 in 8D-8D-8D mode to verify
+    T_mc80_ospi_direct_transfer read_cr2_cmd = {
+      .command        = MX25_OPI_RDCR2_DTR,
+      .command_length = 2,
+      .address        = 0x00000000,
+      .address_length = 4,
+      .data_length    = 2,  // Read 2 bytes in OPI DTR mode
+      .dummy_cycles   = 4,  // 4 dummy cycles for status in DDR
+    };
+
+    _Mc80_ospi_direct_transfer(p_ctrl, &read_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+
+    uint8_t cr2_value = (uint8_t)(read_cr2_cmd.data & 0xFF);
+    if (cr2_value != 0x02)
+    {
+      return FSP_ERR_WRITE_FAILED;  // Protocol switch verification failed
+    }
+  }
+
+  return FSP_SUCCESS;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -1796,7 +1937,6 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   return FSP_SUCCESS;
 }
 
-
 /*-----------------------------------------------------------------------------------------------------
   Configures the device to enter or exit XiP mode
 
@@ -1828,10 +1968,10 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
     p_dummy_read_address = (volatile uint8_t *)MC80_OSPI_DEVICE_1_START_ADDRESS;
   }
 
-  // Clear the pre-fetch buffer for this bank so the next read is guaranteed to use the XiP code
-  #if MC80_OSPI_CFG_PREFETCH_FUNCTION
+// Clear the pre-fetch buffer for this bank so the next read is guaranteed to use the XiP code
+#if MC80_OSPI_CFG_PREFETCH_FUNCTION
   p_reg->BMCTL1 |= 0x03U << OSPI_BMCTL1_PBUFCLRCH0_Pos;
-  #endif
+#endif
 
   // Wait for any on-going access to complete
   while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
@@ -1883,29 +2023,52 @@ static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Performs hardware reset of OSPI flash memory using LIOCTL register RSTCS0 bit
-               Asserts reset for minimum 20us, then deasserts and waits 100us for initialization
+  Perform hardware reset of the flash memory device using LIOCTL register RSTCS0/RSTCS1 bit.
+
+  This function performs a true hardware reset by toggling the reset pin through the OSPI controller.
+  The reset sequence:
+  1. Assert reset pin (set RST bit to 1)
+  2. Hold reset for minimum 20us
+  3. Deassert reset pin (set RST bit to 0)
+  4. Wait 100us for flash device initialization
+
+  After hardware reset, the flash device returns to its default state (SPI mode, CR2=0x00).
+  This provides a more reliable reset than software commands.
 
   Parameters: p_ctrl - Pointer to OSPI instance control structure
 
   Return: FSP_SUCCESS - Reset completed successfully
           FSP_ERR_ASSERTION - Invalid parameters
+          FSP_ERR_NOT_OPEN - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl)
+fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl *const p_ctrl)
 {
-   R_XSPI0_Type *const    p_ospi = p_ctrl->p_reg;
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
 
-  // Assert reset by clearing RSTCS0 bit (bit 16) in LIOCTL register
-  p_ospi->LIOCTL &= ~(1U << 16);
+  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
 
-  // Wait minimum 20us reset pulse width
-  R_BSP_SoftwareDelay(20, BSP_DELAY_UNITS_MICROSECONDS);
+  // Hardware reset sequence using LIOCTL register RSTCS0 bit
+  // Assert reset (clear RSTCS0 bit - active low reset)
+  p_reg->LIOCTL &= ~OSPI_LIOCTL_RSTCS0_Msk;
 
-  // Deassert reset by setting RSTCS0 bit (bit 16) in LIOCTL register
-  p_ospi->LIOCTL |= (1U << 16);
+  // Hold reset for minimum 20us (using 50us for safety margin)
+  R_BSP_SoftwareDelay(50, BSP_DELAY_UNITS_MICROSECONDS);
 
-  // Wait 100us for flash memory initialization
-  R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+  // Deassert reset (set RSTCS0 bit - release reset)
+  p_reg->LIOCTL |= OSPI_LIOCTL_RSTCS0_Msk;
+
+  // Wait for flash device initialization to complete (minimum 100us)
+  R_BSP_SoftwareDelay(200, BSP_DELAY_UNITS_MICROSECONDS);
 
   return FSP_SUCCESS;
 }
@@ -2074,11 +2237,11 @@ fsp_err_t Mc80_ospi_dma_wait_for_completion(ULONG timeout_ticks)
   }
 
   ULONG actual_flags;
-  UINT tx_result = tx_event_flags_get(&g_ospi_dma_event_flags,
-                                      OSPI_DMA_EVENT_TRANSFER_COMPLETE,
-                                      TX_OR_CLEAR,
-                                      &actual_flags,
-                                      timeout_ticks);
+  UINT  tx_result = tx_event_flags_get(&g_ospi_dma_event_flags,
+                                       OSPI_DMA_EVENT_TRANSFER_COMPLETE,
+                                       TX_OR_CLEAR,
+                                       &actual_flags,
+                                       timeout_ticks);
 
   if (TX_SUCCESS == tx_result)
   {
@@ -2144,24 +2307,24 @@ fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p
   memset(p_snapshot, 0, sizeof(T_mc80_ospi_register_snapshot));
 
   // Capture timestamp
-  p_snapshot->timestamp = tx_time_get();
-  p_snapshot->channel = p_ctrl->channel;
+  p_snapshot->timestamp        = tx_time_get();
+  p_snapshot->channel          = p_ctrl->channel;
   p_snapshot->current_protocol = p_ctrl->spi_protocol;
 
   // === Control and Configuration Registers ===
-  p_snapshot->lioctl = p_reg->LIOCTL;
-  p_snapshot->wrapcfg = p_reg->WRAPCFG;
-  p_snapshot->comcfg = p_reg->COMCFG;
-  p_snapshot->bmcfgch[0] = p_reg->BMCFGCH[0];
-  p_snapshot->bmcfgch[1] = p_reg->BMCFGCH[1];
-  p_snapshot->bmctl0 = p_reg->BMCTL0;
-  p_snapshot->bmctl1 = p_reg->BMCTL1;
-  p_snapshot->abmcfg = p_reg->ABMCFG;
+  p_snapshot->lioctl           = p_reg->LIOCTL;
+  p_snapshot->wrapcfg          = p_reg->WRAPCFG;
+  p_snapshot->comcfg           = p_reg->COMCFG;
+  p_snapshot->bmcfgch[0]       = p_reg->BMCFGCH[0];
+  p_snapshot->bmcfgch[1]       = p_reg->BMCFGCH[1];
+  p_snapshot->bmctl0           = p_reg->BMCTL0;
+  p_snapshot->bmctl1           = p_reg->BMCTL1;
+  p_snapshot->abmcfg           = p_reg->ABMCFG;
 
   // === Channel Configuration Registers (Both Channels) ===
   for (int ch = 0; ch < 2; ch++)
   {
-    p_snapshot->liocfgcs[ch] = p_reg->LIOCFGCS[ch];
+    p_snapshot->liocfgcs[ch]       = p_reg->LIOCFGCS[ch];
     p_snapshot->cmcfgcs[ch].cmcfg0 = p_reg->CMCFGCS[ch].CMCFG0;
     p_snapshot->cmcfgcs[ch].cmcfg1 = p_reg->CMCFGCS[ch].CMCFG1;
     p_snapshot->cmcfgcs[ch].cmcfg2 = p_reg->CMCFGCS[ch].CMCFG2;
@@ -2181,9 +2344,9 @@ fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p
   }
 
   // === Status and Interrupt Registers ===
-  p_snapshot->ints = p_reg->INTS;
-  p_snapshot->intc = 0; // INTC is write-only register, set to 0 for reference
-  p_snapshot->inte = p_reg->INTE;
+  p_snapshot->ints   = p_reg->INTS;
+  p_snapshot->intc   = 0;  // INTC is write-only register, set to 0 for reference
+  p_snapshot->inte   = p_reg->INTE;
   p_snapshot->comstt = p_reg->COMSTT;
   p_snapshot->verstt = p_reg->VERSTT;
 
@@ -2196,8 +2359,8 @@ fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p
   // === Command Buffer Registers (Both Channels) ===
   for (int ch = 0; ch < 2; ch++)
   {
-    p_snapshot->cdbuf[ch].cdt = p_reg->CDBUF[ch].CDT;
-    p_snapshot->cdbuf[ch].cda = p_reg->CDBUF[ch].CDA;
+    p_snapshot->cdbuf[ch].cdt  = p_reg->CDBUF[ch].CDT;
+    p_snapshot->cdbuf[ch].cda  = p_reg->CDBUF[ch].CDA;
     p_snapshot->cdbuf[ch].cdd0 = p_reg->CDBUF[ch].CDD0;
     p_snapshot->cdbuf[ch].cdd1 = p_reg->CDBUF[ch].CDD1;
   }

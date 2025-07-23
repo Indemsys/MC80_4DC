@@ -68,7 +68,7 @@ static T_mc80_ospi_timing_setting g_OSPI_timing_settings = {
   .sdr_drive_timing            = MC80_OSPI_SDR_DRIVE_TIMING_BEFORE_CK,
   .sdr_sampling_edge           = MC80_OSPI_CK_EDGE_FALLING,
   .sdr_sampling_delay          = MC80_OSPI_SDR_SAMPLING_DELAY_NONE,
-  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_1,
+  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_NONE,
 };
 
 // === Erase Commands Configuration ===
@@ -86,8 +86,12 @@ const T_mc80_ospi_table g_OSPI_command_set_initial_erase_table = {
   .length  = sizeof(g_OSPI_command_set_initial_erase_commands) / sizeof(g_OSPI_command_set_initial_erase_commands[0]),
 };
 
-// Erase commands for Octal DDR mode (8D-8D-8D) - empty (erase only in SPI mode)
-static const T_mc80_ospi_erase_command g_OSPI_command_set_high_speed_erase_commands[] = {};
+// Erase commands for Octal DDR mode (8D-8D-8D)
+static const T_mc80_ospi_erase_command g_OSPI_command_set_high_speed_erase_commands[] = {
+  { .command = MX25_OPI_SE4B_DTR, .size = MX25UM25645G_SECTOR_SIZE },       // 4KB Sector Erase with 4-byte address (DTR)
+  { .command = MX25_OPI_BE4B_DTR, .size = MX25UM25645G_BLOCK_SIZE },        // 64KB Block Erase with 4-byte address (DTR)
+  { .command = MX25_OPI_CE_DTR, .size = MC80_OSPI_ERASE_SIZE_CHIP_ERASE },  // Chip Erase (DTR)
+};
 
 // Erase table for Octal DDR mode
 const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table                     = {
@@ -183,17 +187,18 @@ const T_mc80_ospi_cfg g_OSPI_cfg = {
 
 // MC80 OSPI API interface
 const T_mc80_ospi_api g_mc80_ospi_api = {
-  .open           = Mc80_ospi_open,
-  .close          = Mc80_ospi_close,
-  .write          = Mc80_ospi_memory_mapped_write,
-  .erase          = Mc80_ospi_erase,
-  .statusGet      = Mc80_ospi_status_get,
-  .spiProtocolSet = Mc80_ospi_spi_protocol_set,
-  .xipEnter       = Mc80_ospi_xip_enter,
-  .xipExit        = Mc80_ospi_xip_exit,
-  .directWrite    = Mc80_ospi_direct_write,
-  .directRead     = Mc80_ospi_direct_read,
-  .directTransfer = Mc80_ospi_direct_transfer,
+  .open                   = Mc80_ospi_open,
+  .close                  = Mc80_ospi_close,
+  .write                  = Mc80_ospi_memory_mapped_write,
+  .erase                  = Mc80_ospi_erase,
+  .statusGet              = Mc80_ospi_status_get,
+  .spiProtocolSet         = Mc80_ospi_spi_protocol_set,
+  .spiProtocolSwitchSafe  = Mc80_ospi_spi_protocol_switch_safe,
+  .xipEnter               = Mc80_ospi_xip_enter,
+  .xipExit                = Mc80_ospi_xip_exit,
+  .directWrite            = Mc80_ospi_direct_write,
+  .directRead             = Mc80_ospi_direct_read,
+  .directTransfer         = Mc80_ospi_direct_transfer,
   .bankSet        = Mc80_ospi_bank_set,
 };
 

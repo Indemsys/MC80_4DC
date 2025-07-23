@@ -26,6 +26,7 @@ void OSPI_test_8d_continuous_read(uint8_t keycode);
 // Internal helper functions
 static fsp_err_t _Ospi_ensure_driver_open(void);
 static void      _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after);
+static T_mc80_ospi_protocol _Ospi_select_protocol(void);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
@@ -187,6 +188,46 @@ void OSPI_test_info(uint8_t keycode)
 }
 
 /*-----------------------------------------------------------------------------------------------------
+  Description: Helper function to select OSPI protocol (1S-1S-1S or 8D-8D-8D)
+
+  Parameters: None
+
+  Return: Selected protocol or MC80_OSPI_PROTOCOL_1S_1S_1S if user cancels
+-----------------------------------------------------------------------------------------------------*/
+static T_mc80_ospi_protocol _Ospi_select_protocol(void)
+{
+  GET_MCBL;
+  MPRINTF("\n\r===== Protocol Selection =====\n\r");
+  MPRINTF("Select OSPI protocol:\n\r");
+  MPRINTF("  <1> - Standard SPI (1S-1S-1S)\n\r");
+  MPRINTF("  <2> - Octal DDR (8D-8D-8D)\n\r");
+  MPRINTF("  <ESC> - Cancel\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t key;
+  WAIT_CHAR(&key, ms_to_ticks(30000));
+
+  switch (key)
+  {
+    case '1':
+      MPRINTF("1 - Standard SPI (1S-1S-1S)\n\r");
+      return MC80_OSPI_PROTOCOL_1S_1S_1S;
+
+    case '2':
+      MPRINTF("2 - Octal DDR (8D-8D-8D)\n\r");
+      return MC80_OSPI_PROTOCOL_8D_8D_8D;
+
+    case VT100_ESC:
+      MPRINTF("ESC - Cancelled\n\r");
+      return MC80_OSPI_PROTOCOL_1S_1S_1S;  // Default to safe protocol
+
+    default:
+      MPRINTF("Invalid choice, using Standard SPI (1S-1S-1S)\n\r");
+      return MC80_OSPI_PROTOCOL_1S_1S_1S;
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
   Description: Test OSPI read operations using direct read interface
 
   Parameters: keycode - Input key code from VT100 terminal
@@ -199,6 +240,9 @@ void OSPI_test_read(uint8_t keycode)
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== OSPI Direct Read Test =====\n\r");
 
+  // Select protocol first
+  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
@@ -209,6 +253,19 @@ void OSPI_test_read(uint8_t keycode)
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
+
+  // Set the selected protocol using safe switch function
+  MPRINTF("Switching to protocol safely (with flash reset)...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to switch protocol safely (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol switched successfully\n\r");
 
   // Allocate buffer for reading 256 bytes
   uint8_t *read_buffer = App_malloc(256);
@@ -273,6 +330,9 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== Memory-Mapped Write Test (DMA) =====\n\r");
 
+  // Select protocol first
+  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
@@ -283,6 +343,19 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
+
+  // Set the selected protocol with safe switching
+  MPRINTF("Setting protocol with safe switching...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol set successfully\n\r");
 
   MPRINTF("WARNING: This will write test data to flash address 0x00000000\n\r");
   MPRINTF("Press 'Y' to continue or any other key to cancel: ");
@@ -445,6 +518,9 @@ void OSPI_test_erase(uint8_t keycode)
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== OSPI Erase Test =====\n\r");
 
+  // Select protocol first
+  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
@@ -455,6 +531,19 @@ void OSPI_test_erase(uint8_t keycode)
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
+
+  // Set the selected protocol with safe switching
+  MPRINTF("Setting protocol with safe switching...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol set successfully\n\r");
 
   MPRINTF("WARNING: This will erase 4KB sector at address 0x00000000\n\r");
   MPRINTF("Press 'Y' to continue or any other key to cancel: ");
@@ -601,6 +690,9 @@ void OSPI_test_sector(uint8_t keycode)
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== OSPI Full Sector Test =====\n\r");
 
+  // Select protocol first
+  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
@@ -611,6 +703,19 @@ void OSPI_test_sector(uint8_t keycode)
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
+
+  // Set the selected protocol with safe switching
+  MPRINTF("Setting protocol with safe switching...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol set successfully\n\r");
 
   MPRINTF("This will test full 4KB sector erase/write/read\n\r");
   MPRINTF("WARNING: This will modify entire 4KB sector at 0x00000000\n\r");
@@ -1473,6 +1578,9 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== Memory-Mapped Read Test =====\n\r");
 
+  // Select protocol first
+  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
@@ -1483,6 +1591,19 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
     WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
     return;
   }
+
+  // Set the selected protocol with safe switching
+  MPRINTF("Setting protocol with safe switching...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol set successfully\n\r");
 
   // Allocate buffers for three reads (256 bytes each)
   uint8_t *read_buffer1 = (uint8_t *)App_malloc(256);

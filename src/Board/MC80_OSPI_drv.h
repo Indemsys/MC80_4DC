@@ -513,6 +513,7 @@ typedef struct st_mc80_ospi_api
   fsp_err_t (* erase)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t * const p_device_address, uint32_t byte_count);
   fsp_err_t (* statusGet)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_status * const p_status);
   fsp_err_t (* spiProtocolSet)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_protocol spi_protocol);
+  fsp_err_t (* spiProtocolSwitchSafe)(T_mc80_ospi_instance_ctrl * const p_ctrl, T_mc80_ospi_protocol new_protocol);
   fsp_err_t (* xipEnter)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* xipExit)(T_mc80_ospi_instance_ctrl * const p_ctrl);
   fsp_err_t (* directWrite)(T_mc80_ospi_instance_ctrl * const p_ctrl, uint8_t const * const p_src, uint32_t const address, uint32_t const bytes, bool const read_after_write);
@@ -540,6 +541,7 @@ fsp_err_t Mc80_ospi_direct_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_
 fsp_err_t Mc80_ospi_direct_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes);
 fsp_err_t Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_direct_transfer* const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 fsp_err_t Mc80_ospi_spi_protocol_set(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_protocol spi_protocol);
+fsp_err_t Mc80_ospi_spi_protocol_switch_safe(T_mc80_ospi_instance_ctrl* const p_ctrl, T_mc80_ospi_protocol new_protocol);
 fsp_err_t Mc80_ospi_xip_enter(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl* const p_ctrl);
 fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t const* const p_src, uint8_t* const p_dest, uint32_t byte_count);
