@@ -37,6 +37,7 @@ BSP_DONT_REMOVE const fsp_vector_t g_vector_table[BSP_ICU_VECTOR_MAX_ENTRIES] BS
  [25] = canfd_rx_fifo_isr,       /* CAN RXF (Global receive FIFO interrupt) */
  [26] = dmac_int_isr,            /* DMAC4 INT (DMAC4 transfer end) */
  [27] = dmac_int_isr,            /* DMAC5 INT (DMAC5 transfer end) */
+ [28] = ospi_cmdcmp_isr,         /* OSPI CMDCMP (Command completion) */
 
 };
   #if BSP_FEATURE_ICU_HAS_IELSR
@@ -78,6 +79,7 @@ const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENT
  [25] = ELC_EVENT_CAN_RXF,       /* CAN RXF (Global receive FIFO interrupt) */
  [26] = ELC_EVENT_DMAC4_INT,     /* DMAC4 INT (DMAC4 transfer end) */
  [27] = ELC_EVENT_DMAC5_INT,     /* DMAC5 INT (DMAC5 transfer end) */
+ [28] = ELC_EVENT_XSPI_CMP,      /* OSPI CMDCMP (Command completion) */
 };
   #endif
 #endif

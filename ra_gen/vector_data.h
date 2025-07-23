@@ -6,7 +6,7 @@ extern "C"
 {
 #endif  /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-  #define VECTOR_DATA_IRQ_COUNT (28)
+  #define VECTOR_DATA_IRQ_COUNT (29)
 #endif
   /* ISR prototypes */
   void spi_b_rxi_isr(void);
@@ -30,6 +30,7 @@ extern "C"
   void canfd_channel_tx_isr(void);
   void canfd_common_fifo_rx_isr(void);
   void canfd_rx_fifo_isr(void);
+  void ospi_cmdcmp_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_SPI0_RXI      ((IRQn_Type)0)  /* SPI0 RXI (Receive buffer full) */
@@ -88,6 +89,8 @@ extern "C"
 #define DMAC4_INT_IRQn              ((IRQn_Type)26) /* DMAC4 INT (DMAC4 transfer end) */
 #define VECTOR_NUMBER_DMAC5_INT     ((IRQn_Type)27) /* DMAC5 INT (DMAC5 transfer end) */
 #define DMAC5_INT_IRQn              ((IRQn_Type)27) /* DMAC5 INT (DMAC5 transfer end) */
+#define VECTOR_NUMBER_OSPI_CMDCMP   ((IRQn_Type)28) /* OSPI CMDCMP (Command completion) */
+#define OSPI_CMDCMP_IRQn            ((IRQn_Type)28) /* OSPI CMDCMP (Command completion) */
 #ifdef __cplusplus
 }
 #endif

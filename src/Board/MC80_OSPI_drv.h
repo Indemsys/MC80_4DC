@@ -563,9 +563,17 @@ void Mc80_ospi_dma_transfer_reset_flags(void);
 fsp_err_t Mc80_ospi_dma_get_event_flags(TX_EVENT_FLAGS_GROUP **pp_event_flags);
 fsp_err_t Mc80_ospi_dma_wait_for_completion(ULONG timeout_ticks);
 
+// RTOS-based periodic status polling functions
+fsp_err_t Mc80_ospi_cmdcmp_wait_for_completion(ULONG timeout_ticks);
+
 // DMA event flag constants for task synchronization
 #define OSPI_DMA_EVENT_TRANSFER_COMPLETE  (0x00000001UL)
 #define OSPI_DMA_EVENT_TRANSFER_ERROR     (0x00000002UL)
 #define OSPI_DMA_EVENT_ALL_EVENTS         (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
+
+// Periodic polling event flag constants (using same event group as DMA)
+#define OSPI_CMDCMP_EVENT_COMPLETE        (0x00000004UL)
+#define OSPI_CMDCMP_EVENT_ERROR           (0x00000008UL)
+#define OSPI_CMDCMP_EVENT_ALL_EVENTS      (OSPI_CMDCMP_EVENT_COMPLETE | OSPI_CMDCMP_EVENT_ERROR)
 
 #endif  // MC80_OSPI_DRV_H

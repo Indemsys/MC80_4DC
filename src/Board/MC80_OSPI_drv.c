@@ -9,7 +9,7 @@
 /*-----------------------------------------------------------------------------------------------------
   Static variables for DMA callback support
 -----------------------------------------------------------------------------------------------------*/
-// RTOS event flags for DMA notifications
+// RTOS event flags for DMA notifications and OSPI command completion
 static TX_EVENT_FLAGS_GROUP g_ospi_dma_event_flags;
 static bool                 g_ospi_dma_event_flags_initialized = false;
 
@@ -18,8 +18,16 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 #define OSPI_DMA_EVENT_TRANSFER_ERROR                    (0x00000002UL)
 #define OSPI_DMA_EVENT_ALL_EVENTS                        (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
 
+// Periodic polling event flag definitions (using same event group as DMA)
+#define OSPI_CMDCMP_EVENT_COMPLETE                       (0x00000004UL)
+#define OSPI_CMDCMP_EVENT_ERROR                          (0x00000008UL)
+#define OSPI_CMDCMP_EVENT_ALL_EVENTS                     (OSPI_CMDCMP_EVENT_COMPLETE | OSPI_CMDCMP_EVENT_ERROR)
+
 // DMA completion timeout (1 second = 1000 ms in ThreadX ticks, assuming 1ms tick period)
 #define OSPI_DMA_COMPLETION_TIMEOUT_MS                   (1000UL)
+
+// Periodic polling timeout (3.2768 seconds = 32768 × 100 µs, assuming maximum repetitions)
+#define OSPI_CMDCMP_COMPLETION_TIMEOUT_MS                (3500UL)
 
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
@@ -105,6 +113,12 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 // Timeout for waiting device ready status before write operation (1 second in ThreadX ticks)
 #define MC80_OSPI_DEVICE_READY_TIMEOUT_MS                (1000UL)
 
+// Periodic polling configuration for status monitoring
+// OSPI timer: CPU_CLK/2 = 120MHz, formula: 2^(PERITV+1) cycles
+#define MC80_OSPI_PERIODIC_INTERVAL_100US                (0x0BU)   // PERITV = 11: 2^12 = 4096 cycles = 34.1µs @ 120MHz
+#define MC80_OSPI_PERIODIC_REPETITIONS_MAX               (0x0FU)   // PERREP = 15: 32768 repetitions (2^15), total time = 34.1µs × 32768 = 1.117s
+#define MC80_OSPI_PERIODIC_MODE_ENABLE                   (0x01U)   // PERMD = 1: Enable periodic mode
+
 /*-----------------------------------------------------------------------------------------------------
   Static function prototypes
 -----------------------------------------------------------------------------------------------------*/
@@ -117,6 +131,9 @@ static void                                _Mc80_ospi_xip(T_mc80_ospi_instance_c
 void                                       OSPI_dma_callback(dmac_callback_args_t *p_args);
 static fsp_err_t                           _Ospi_dma_event_flags_initialize(void);
 static void                                _Ospi_dma_event_flags_cleanup(void);
+static fsp_err_t                           _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl);
+static void                                _Mc80_ospi_periodic_status_stop(T_mc80_ospi_instance_ctrl *p_ctrl);
+void                                       ospi_cmdcmp_isr(void);
 
 /*-----------------------------------------------------------------------------------------------------
   Private global variables
@@ -124,6 +141,34 @@ static void                                _Ospi_dma_event_flags_cleanup(void);
 
 // Bit-flags specifying which channels are open so the module can be stopped when all are closed
 static uint32_t g_mc80_ospi_channels_open_flags = 0;
+
+
+/*-----------------------------------------------------------------------------------------------------
+  OSPI command completion interrupt service routine for periodic status polling.
+
+  This ISR is called when the OSPI peripheral completes a periodic status command.
+  It sets the appropriate event flag to wake up tasks waiting for write completion.
+
+  Parameters: None
+
+  Return: None
+-----------------------------------------------------------------------------------------------------*/
+void ospi_cmdcmp_isr(void)
+{
+  // Check if CMDCMP interrupt occurred and clear it
+  if (R_XSPI0->INTS & OSPI_INTS_CMDCMP_Msk)
+  {
+    // Clear the interrupt flag
+    R_XSPI0->INTC = OSPI_INTC_CMDCMPC_Msk;
+
+    // Set command completion event flag if RTOS is initialized
+    if (g_ospi_dma_event_flags_initialized)
+    {
+      tx_event_flags_set(&g_ospi_dma_event_flags, OSPI_CMDCMP_EVENT_COMPLETE, TX_OR);
+    }
+  }
+}
+
 
 /*-----------------------------------------------------------------------------------------------------
   Open the xSPI device. After the driver is open, the xSPI device can be accessed like internal flash memory.
@@ -821,26 +866,42 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
   while (bytes_remaining > 0)
   {
     // Wait for device ready status before starting new block write operation
-    uint32_t timeout_ticks = MS_TO_TICKS(MC80_OSPI_DEVICE_READY_TIMEOUT_MS);
-    uint32_t start_time    = tx_time_get();
-
-    while (true == _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit))
+    // Option 1: Use hardware periodic polling (more efficient)
+    if (_Mc80_ospi_periodic_status_start(p_ctrl) == FSP_SUCCESS)
     {
-      // Check timeout
-      if ((tx_time_get() - start_time) >= timeout_ticks)
+      // Wait for periodic polling completion using hardware automation
+      err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+      _Mc80_ospi_periodic_status_stop(p_ctrl);
+
+      if (FSP_SUCCESS != err)
       {
-        err = FSP_ERR_TIMEOUT;
-        break;
+        break; // Timeout or error in periodic polling
+      }
+    }
+    else
+    {
+      // Option 2: Fallback to software polling if hardware polling is not available
+      uint32_t timeout_ticks = MS_TO_TICKS(MC80_OSPI_DEVICE_READY_TIMEOUT_MS);
+      uint32_t start_time    = tx_time_get();
+
+      while (true == _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit))
+      {
+        // Check timeout
+        if ((tx_time_get() - start_time) >= timeout_ticks)
+        {
+          err = FSP_ERR_TIMEOUT;
+          break;
+        }
+
+        // Wait one OS tick before checking status again
+        tx_thread_sleep(1);
       }
 
-      // Wait one OS tick before checking status again
-      tx_thread_sleep(1);
-    }
-
-    // Exit main loop if timeout occurred
-    if (FSP_ERR_TIMEOUT == err)
-    {
-      break;
+      // Exit main loop if timeout occurred
+      if (FSP_ERR_TIMEOUT == err)
+      {
+        break;
+      }
     }
 
     // Determine current block size (64 bytes or remaining bytes, whichever is smaller)
@@ -885,41 +946,40 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       break;
     }
 
-    // Wait for DMA completion using RTOS event flags (asynchronous)
-    err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
-    if (FSP_SUCCESS != err)
-    {
-      break;
-    }
-
-    // Verify transfer completion status using infoGet
-    transfer_properties_t transfer_properties = { 0U };
-    err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
-    if (FSP_SUCCESS != err)
-    {
-      break;
-    }
-
-    // Check if transfer completed successfully (remaining length should be 0)
-    if (transfer_properties.transfer_length_remaining > 0)
-    {
-      err = FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
-      break;
-    }
-
-    // Handle combination write function for blocks smaller than combination bytes
-    if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
-    {
-      uint8_t combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
-      if (current_block_size < combo_bytes)
-      {
-        p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
-      }
-    }
-
-    // Move to next block
+    // Move to next block (DMA completion will be checked at the end)
     offset += current_block_size;
     bytes_remaining -= current_block_size;
+  }
+
+  // Wait for final DMA completion using RTOS event flags (asynchronous)
+  if (FSP_SUCCESS == err)
+  {
+    err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
+  }
+
+  // Verify final transfer completion status using infoGet
+  if (FSP_SUCCESS == err)
+  {
+    transfer_properties_t transfer_properties = { 0U };
+    err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+    if (FSP_SUCCESS == err)
+    {
+      // Check if transfer completed successfully (remaining length should be 0)
+      if (transfer_properties.transfer_length_remaining > 0)
+      {
+        err = FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
+      }
+    }
+  }
+
+  // Handle combination write function for final block if needed
+  if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
+  {
+    uint8_t combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
+    if ((byte_count % MC80_OSPI_BLOCK_WRITE_SIZE) < combo_bytes && (byte_count % MC80_OSPI_BLOCK_WRITE_SIZE) > 0)
+    {
+      p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
+    }
   }
 
   // Disable Octa-SPI DMA Bufferable Write
@@ -2444,6 +2504,205 @@ fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p
   for (int ch = 0; ch < 2; ch++)
   {
     p_snapshot->cmctlch[ch] = p_reg->CMCTLCH[ch];
+  }
+
+  return FSP_SUCCESS;
+}
+
+
+/*-----------------------------------------------------------------------------------------------------
+  Start periodic status polling using OSPI hardware automation.
+
+  This function configures the OSPI peripheral to automatically and periodically
+  read the flash status register at 100µs intervals for up to 32768 repetitions.
+  The polling stops automatically when the WIP (Write In Progress) bit becomes 0.
+
+  Parameters:
+    p_ctrl - Pointer to the control structure
+
+  Return:
+    FSP_SUCCESS       - Periodic polling started successfully
+    FSP_ERR_ASSERTION - Invalid parameters
+    FSP_ERR_NOT_OPEN  - Driver is not opened
+-----------------------------------------------------------------------------------------------------*/
+static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl)
+{
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl)
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
+  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
+  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
+
+  // Skip if no status command is defined
+  if (0 == p_cmd_set->status_command)
+  {
+    return FSP_SUCCESS;
+  }
+
+  // Configure periodic control register CDCTL0
+  uint32_t cdctl0_value = 0;
+
+  // First, clear any existing configuration
+  p_reg->CDCTL0 = 0;
+
+  // Set channel selection
+  cdctl0_value |= (((uint32_t)p_ctrl->channel << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
+
+  // Set periodic mode enable
+  cdctl0_value |= (MC80_OSPI_PERIODIC_MODE_ENABLE << OSPI_CDCTL0_PERMD_Pos) & OSPI_CDCTL0_PERMD_Msk;
+
+  // Set periodic interval (100µs)
+  cdctl0_value |= (MC80_OSPI_PERIODIC_INTERVAL_100US << OSPI_CDCTL0_PERITV_Pos) & OSPI_CDCTL0_PERITV_Msk;
+
+  // Set maximum repetitions (32768)
+  cdctl0_value |= (MC80_OSPI_PERIODIC_REPETITIONS_MAX << OSPI_CDCTL0_PERREP_Pos) & OSPI_CDCTL0_PERREP_Msk;
+
+
+  // Prepare command parameters for status reading
+  uint16_t command        = p_cmd_set->status_command;
+  uint8_t  command_length = (uint8_t)p_cmd_set->command_bytes;
+  uint8_t  address_length = 0U;
+  uint32_t address        = 0U;
+  uint8_t  data_length    = 1U;
+  uint8_t  dummy_cycles   = p_cmd_set->status_dummy_cycles;
+
+  if (p_cmd_set->status_needs_address)
+  {
+    address_length = (uint8_t)(p_cmd_set->status_address_bytes + 1U);
+    address        = p_cmd_set->status_address;
+  }
+
+  // Build the Command Data Buffer configuration register value
+  uint32_t cdtbuf0 =
+    (((uint32_t)command_length << OSPI_CDTBUFn_CMDSIZE_Pos) & OSPI_CDTBUFn_CMDSIZE_Msk) |
+    (((uint32_t)address_length << OSPI_CDTBUFn_ADDSIZE_Pos) & OSPI_CDTBUFn_ADDSIZE_Msk) |
+    (((uint32_t)data_length << OSPI_CDTBUFn_DATASIZE_Pos) & OSPI_CDTBUFn_DATASIZE_Msk) |
+    (((uint32_t)dummy_cycles << OSPI_CDTBUFn_LATE_Pos) & OSPI_CDTBUFn_LATE_Msk) |
+    (((uint32_t)MC80_OSPI_DIRECT_TRANSFER_DIR_READ << OSPI_CDTBUFn_TRTYPE_Pos) & OSPI_CDTBUFn_TRTYPE_Msk);
+
+  // Handle command code positioning based on command length
+  if (1 == command_length)
+  {
+    cdtbuf0 |= (command & MC80_OSPI_PRV_CDTBUF_CMD_1B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_UPPER_OFFSET;
+  }
+  else
+  {
+    cdtbuf0 |= (command & MC80_OSPI_PRV_CDTBUF_CMD_2B_VALUE_MASK) << MC80_OSPI_PRV_CDTBUF_CMD_OFFSET;
+  }
+
+  // Configure command buffer for status reading
+  p_reg->CDBUF[p_ctrl->channel].CDT = cdtbuf0;
+
+  if (address_length > 0)
+  {
+    p_reg->CDBUF[p_ctrl->channel].CDA = address;
+  }
+
+  // Configure periodic transaction expected value (CDCTL1.PEREXP)
+  // We expect WIP bit (bit 0) to be 0 when write operation completes
+  p_reg->CDCTL1 = 0x00000000U;
+
+  // Configure periodic transaction mask (CDCTL2.PERMSK)
+  // Bits set to 1 are IGNORED, bits set to 0 are COMPARED
+  // We want to compare only WIP bit (bit 0), so set bit 0 = 0, all others = 1
+  // This works for both SPI and 8D-8D-8D modes:
+  // - In SPI: ignores unused status bits (1-31)
+  // - In 8D-8D-8D: ignores dummy data in upper bytes (8-31) and unused status bits (1-7)
+  p_reg->CDCTL2 = 0xFFFFFFFEU;  // Bit 0 = 0 (compared), bits 1-31 = 1 (ignored)
+
+  // Clear any existing interrupts before starting
+  p_reg->INTC = OSPI_INTC_CMDCMPC_Msk;
+  // Enable command completion interrupt
+  p_reg->INTE |= OSPI_INTE_CMDCMPE_Msk;
+
+  // Write periodic control configuration - this starts periodic polling automatically
+  p_reg->CDCTL0 = cdctl0_value;
+
+  return FSP_SUCCESS;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Stop periodic status polling.
+
+  This function stops the OSPI hardware periodic polling and disables the
+  command completion interrupt.
+
+  Parameters:
+    p_ctrl - Pointer to the control structure
+
+  Return: None
+-----------------------------------------------------------------------------------------------------*/
+static void _Mc80_ospi_periodic_status_stop(T_mc80_ospi_instance_ctrl *p_ctrl)
+{
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if (NULL == p_ctrl || MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return;
+    }
+  }
+
+  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
+
+  // Disable periodic mode
+  p_reg->CDCTL0 &= ~OSPI_CDCTL0_PERMD_Msk;
+
+  // Clear periodic transaction registers
+  p_reg->CDCTL1 = 0U;  // Clear expected value
+  p_reg->CDCTL2 = 0U;  // Clear mask value
+
+  // Disable command completion interrupt
+  p_reg->INTE &= ~OSPI_INTE_CMDCMPE_Msk;
+
+  // Clear any pending interrupt flags
+  p_reg->INTC |= OSPI_INTC_CMDCMPC_Msk;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Wait for OSPI command completion using event flags.
+
+  This function waits for the periodic status polling to complete by monitoring
+  the command completion event flag set by the ISR.
+
+  Parameters:
+    timeout_ticks - Maximum time to wait in ThreadX ticks
+
+  Return:
+    FSP_SUCCESS               - Command completed successfully
+    FSP_ERR_TIMEOUT          - Timeout occurred
+    FSP_ERR_NOT_INITIALIZED  - Event flags not initialized
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_cmdcmp_wait_for_completion(ULONG timeout_ticks)
+{
+  if (!g_ospi_dma_event_flags_initialized)
+  {
+    return FSP_ERR_NOT_INITIALIZED;
+  }
+
+  ULONG actual_flags = 0;
+  UINT status = tx_event_flags_get(&g_ospi_dma_event_flags,
+                                   OSPI_CMDCMP_EVENT_ALL_EVENTS,
+                                   TX_OR_CLEAR,
+                                   &actual_flags,
+                                   timeout_ticks);
+
+  if (TX_SUCCESS != status)
+  {
+    return FSP_ERR_TIMEOUT;
+  }
+
+  if (actual_flags & OSPI_CMDCMP_EVENT_ERROR)
+  {
+    return FSP_ERR_WRITE_FAILED;
   }
 
   return FSP_SUCCESS;
