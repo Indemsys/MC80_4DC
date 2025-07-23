@@ -40,8 +40,8 @@
         <MultiCoreRunAll>1</MultiCoreRunAll>
     </Simulator>
     <PlDriver>
-        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
         <FirstRun>0</FirstRun>
+        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
     </PlDriver>
     <JLinkDriver>
         <LeaveTargetRunning>_ 0</LeaveTargetRunning>
@@ -55,32 +55,32 @@
         <EnforceMemoryConfiguration>0</EnforceMemoryConfiguration>
     </ArmDriver>
     <DebugChecksum>
-        <Checksum>3836571993</Checksum>
+        <Checksum>1960679734</Checksum>
     </DebugChecksum>
     <InterruptStripe>
         <Title0>DMAC1_INT</Title0>
         <Setup0>3 1 3 0 1 0 0 0 0</Setup0>
         <Title1>USBFS_FIFO_1</Title1>
         <Setup1>3 1 3 0 1 0 0 0 0</Setup1>
-        <Title2>USBFS_RESUME</Title2>
+        <Title2>USBFS_FIFO_0</Title2>
         <Setup2>3 1 3 0 1 0 0 0 0</Setup2>
-        <Title3>USBFS_INT</Title3>
+        <Title3>USBFS_RESUME</Title3>
         <Setup3>3 1 3 0 1 0 0 0 0</Setup3>
-        <Title4>SDHIMMC1_ACCS</Title4>
+        <Title4>USBFS_INT</Title4>
         <Setup4>3 1 3 0 1 0 0 0 0</Setup4>
-        <Title5>AGT0_INT</Title5>
+        <Title5>SDHIMMC1_ACCS</Title5>
         <Setup5>3 1 3 0 1 0 0 0 0</Setup5>
-        <Title6>SPI0_TEI</Title6>
+        <Title6>AGT0_INT</Title6>
         <Setup6>3 1 3 0 1 0 0 0 0</Setup6>
-        <Title7>SPI0_TXI</Title7>
+        <Title7>SPI0_TEI</Title7>
         <Setup7>3 1 3 0 1 0 0 0 0</Setup7>
-        <Title8>SPI0_RXI</Title8>
+        <Title8>SPI0_TXI</Title8>
         <Setup8>3 1 3 0 1 0 0 0 0</Setup8>
-        <Title9>SysTick</Title9>
+        <Title9>SPI0_RXI</Title9>
         <Setup9>3 1 3 0 1 0 0 0 0</Setup9>
-        <Title10>PendSV</Title10>
+        <Title10>SysTick</Title10>
         <Setup10>3 1 3 0 1 0 0 0 0</Setup10>
-        <Title11>USBFS_FIFO_0</Title11>
+        <Title11>PendSV</Title11>
         <Setup11>3 1 3 0 1 0 0 0 0</Setup11>
         <Title12>HardFault</Title12>
         <Setup12>3 1 3 0 1 0 0 0 0</Setup12>
@@ -198,7 +198,8 @@
         <mode>0</mode>
     </DisassembleMode>
     <Breakpoints2>
-        <Count>0</Count>
+        <Bp0>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\Board\MC80_OSPI_drv.c}.1891.3" 0 0 1 "" 0 "" 0</Bp0>
+        <Count>1</Count>
     </Breakpoints2>
     <DriverProfiling>
         <Enabled>0</Enabled>

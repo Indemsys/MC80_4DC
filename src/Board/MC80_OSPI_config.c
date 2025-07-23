@@ -11,7 +11,7 @@
 #include "MC80_OSPI_drv.h"
 
 // External DMA callback function declaration
-extern void _Ospi_dma_callback(dmac_callback_args_t *p_args);
+extern void OSPI_dma_callback(dmac_callback_args_t *p_args);
 
 // === OSPI Transfer (DMA) Configuration ===
 #if OSPI_B_CFG_DMAC_SUPPORT_ENABLE
@@ -40,7 +40,7 @@ const dmac_extended_cfg_t g_transfer_OSPI_extend = {
   #endif
   .ipl               = (10),
   .channel           = 3,
-  .p_callback        = _Ospi_dma_callback,
+  .p_callback        = OSPI_dma_callback,
   .p_context         = NULL,
   .activation_source = ELC_EVENT_NONE,
 };

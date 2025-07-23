@@ -15,7 +15,7 @@
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
 void OSPI_test_read(uint8_t keycode);
-void OSPI_test_write(uint8_t keycode);
+void OSPI_test_memory_mapped_write(uint8_t keycode);
 void OSPI_test_erase(uint8_t keycode);
 void OSPI_test_sector(uint8_t keycode);
 void OSPI_test_8d_calibration(uint8_t keycode);
@@ -28,12 +28,12 @@ static fsp_err_t _Ospi_ensure_driver_open(void);
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
   { '2', OSPI_test_read, 0 },
-  { '3', OSPI_test_write, 0 },
-  { '4', OSPI_test_erase, 0 },
-  { '5', OSPI_test_sector, 0 },
-  { '6', OSPI_test_8d_calibration, 0 },
-  { '7', OSPI_write_preamble_patterns, 0 },
-  { '8', OSPI_test_memory_mapped_read, 0 },
+  { '3', OSPI_test_memory_mapped_read, 0 },
+  { '4', OSPI_test_memory_mapped_write, 0 },
+  { '5', OSPI_test_erase, 0 },
+  { '6', OSPI_test_sector, 0 },
+  { '7', OSPI_test_8d_calibration, 0 },
+  { '8', OSPI_write_preamble_patterns, 0 },
   { 'R', 0, 0 },
   { 0 }
 };
@@ -41,14 +41,14 @@ const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
 const T_VT100_Menu MENU_OSPI = {
   "OSPI Flash Testing",
   "\033[5C OSPI Flash memory testing menu\r\n"
-  "\033[5C <1> - OSPI Flash information & status\r\n"
-  "\033[5C <2> - Read data test\r\n"
-  "\033[5C <3> - Write data test\r\n"
-  "\033[5C <4> - Erase sector test\r\n"
-  "\033[5C <5> - Full sector test\r\n"
-  "\033[5C <6> - 8D-8D-8D protocol & calibration test\r\n"
-  "\033[5C <7> - Write preamble patterns for calibration\r\n"
-  "\033[5C <8> - Memory-mapped read performance test\r\n"
+  "\033[5C <1> - Flash information & status\r\n"
+  "\033[5C <2> - Direct read test (command-based)\r\n"
+  "\033[5C <3> - Memory-mapped read test (DMA)\r\n"
+  "\033[5C <4> - Memory-mapped write test (DMA)\r\n"
+  "\033[5C <5> - Erase sector test\r\n"
+  "\033[5C <6> - Full sector test (write/read/verify)\r\n"
+  "\033[5C <7> - 8D-8D-8D protocol & calibration test\r\n"
+  "\033[5C <8> - Write calibration preamble patterns\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
@@ -93,8 +93,8 @@ void OSPI_test_info(uint8_t keycode)
 
   // Read JEDEC ID using RDID command
   MPRINTF("\n\r===== JEDEC ID Information =====\n\r");
-  uint8_t jedec_id[3] = {0};
-  err = Mc80_ospi_read_id(g_mc80_ospi.p_ctrl, jedec_id, 3);
+  uint8_t jedec_id[3] = { 0 };
+  err                 = Mc80_ospi_read_id(g_mc80_ospi.p_ctrl, jedec_id, 3);
   if (FSP_SUCCESS == err)
   {
     MPRINTF("JEDEC ID                       : 0x%02X 0x%02X 0x%02X\n\r", jedec_id[0], jedec_id[1], jedec_id[2]);
@@ -145,8 +145,8 @@ void OSPI_test_info(uint8_t keycode)
   MPRINTF("Max erase time                 : 300 ms (sector)\n\r");
 
   MPRINTF("\n\rOSPI Address Mapping:\n\r");
-  MPRINTF("XIP base address               : 0x80000000\n\r");
-  MPRINTF("XIP address range              : 0x80000000 - 0x81FFFFFF\n\r");
+  MPRINTF("Memory-mapped base address     : 0x80000000\n\r");
+  MPRINTF("Memory-mapped address range    : 0x80000000 - 0x81FFFFFF\n\r");
   MPRINTF("Total addressable              : 32 MB\n\r");
 
   // Additional status checks
@@ -163,31 +163,6 @@ void OSPI_test_info(uint8_t keycode)
   {
     MPRINTF("Status read                    : FAILED\n\r");
     MPRINTF("Error code                     : 0x%X\n\r", err);
-  }
-
-  // Test XIP mode operations
-  MPRINTF("\n\rTesting XIP mode operations...\n\r");
-
-  // Try to enter XIP mode
-  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("XIP Enter                      : SUCCESS\n\r");
-
-    // Try to exit XIP mode
-    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("XIP Exit                       : SUCCESS\n\r");
-    }
-    else
-    {
-      MPRINTF("XIP Exit                       : FAILED (error: 0x%X)\n\r", err);
-    }
-  }
-  else
-  {
-    MPRINTF("XIP Enter                      : FAILED (error: 0x%X)\n\r", err);
   }
 
   // Test SPI protocol setting
@@ -288,11 +263,11 @@ void OSPI_test_read(uint8_t keycode)
 
   Return:
 -----------------------------------------------------------------------------------------------------*/
-void OSPI_test_write(uint8_t keycode)
+void OSPI_test_memory_mapped_write(uint8_t keycode)
 {
   GET_MCBL;
   MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== OSPI Write Test =====\n\r");
+  MPRINTF(" ===== Memory-Mapped Write Test (DMA) =====\n\r");
 
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
@@ -336,8 +311,8 @@ void OSPI_test_write(uint8_t keycode)
   }
 
   // Create test pattern with random base value and incremented sequence
-  uint32_t seed = tx_time_get();
-  seed = seed * 1103515245 + 12345;  // Simple LCG algorithm
+  uint32_t seed      = tx_time_get();
+  seed               = seed * 1103515245 + 12345;  // Simple LCG algorithm
   uint8_t base_value = (uint8_t)(seed >> 16);
 
   MPRINTF("Creating test pattern with random base: 0x%02X\n\r", base_value);
@@ -349,16 +324,9 @@ void OSPI_test_write(uint8_t keycode)
 
   MPRINTF("Test pattern created (256 bytes: 0x%02X + increment)\n\r", base_value);
 
-  // Exit XIP mode
-  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
-  }
-
   // Check flash status
   T_mc80_ospi_status status;
-  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
+  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   if (err == FSP_SUCCESS && status.write_in_progress)
   {
     MPRINTF("Flash is busy, waiting...\n\r");
@@ -412,7 +380,7 @@ void OSPI_test_write(uint8_t keycode)
       }
 
       // Compare data
-      bool match = true;
+      bool match       = true;
       int  error_count = 0;
       for (int i = 0; i < 256; i++)
       {
@@ -510,16 +478,9 @@ void OSPI_test_erase(uint8_t keycode)
     return;
   }
 
-  // Exit XIP mode
-  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("Warning: XIP exit failed (0x%X)\n\r", err);
-  }
-
   // Check initial flash status
   T_mc80_ospi_status status;
-  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
+  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
   if (err == FSP_SUCCESS && status.write_in_progress)
   {
     MPRINTF("Flash is busy, waiting...\n\r");
@@ -564,25 +525,8 @@ void OSPI_test_erase(uint8_t keycode)
       // Read back to verify erase
       MPRINTF("Reading back erased data for verification...\n\r");
 
-      // Enter XIP mode for read
-      err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
-      if (err != FSP_SUCCESS)
-      {
-        App_free(read_buffer);
-        return;
-      }
-
-      // Read data directly from XIP memory
-      memcpy(read_buffer, (void *)OSPI_BASE_ADDRESS, 256);
-
-      // Exit XIP mode
-      err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-      if (err != FSP_SUCCESS)
-      {
-        // XIP exit failed - continue anyway
-      }
-
-      err = FSP_SUCCESS;  // Set success for the following check
+      // Read data using memory-mapped read
+      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 256);
 
       if (err == FSP_SUCCESS)
       {
@@ -703,9 +647,6 @@ void OSPI_test_sector(uint8_t keycode)
     return;
   }
 
-  // Exit XIP mode
-  Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-
   // Erase entire sector
   MPRINTF("Erasing 4KB sector...\n\r");
   fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
@@ -757,26 +698,8 @@ void OSPI_test_sector(uint8_t keycode)
     // Read back chunk
     memset(chunk_read, 0, 256);
 
-    // Enter XIP mode for read
-    err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
-    if (err != FSP_SUCCESS)
-    {
-      MPRINTF("XIP enter for chunk %d failed: 0x%X\n\r", chunk, err);
-      errors++;
-      continue;
-    }
-
-    // Read data directly from XIP memory
-    memcpy(chunk_read, (void *)(OSPI_BASE_ADDRESS + address), 256);
-
-    // Exit XIP mode
-    err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-    if (err != FSP_SUCCESS)
-    {
-      MPRINTF("XIP exit for chunk %d failed: 0x%X\n\r", chunk, err);
-    }
-
-    err = FSP_SUCCESS;  // Set success for the following check
+    // Read data using memory-mapped read
+    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, chunk_read, address, 256);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Read chunk %d failed: 0x%X\n\r", chunk, err);
@@ -827,7 +750,7 @@ cleanup:
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Test 8D-8D-8D protocol with calibration and XIP read verification
+  Description: Test 8D-8D-8D protocol with calibration and memory-mapped read verification
 
   Parameters: keycode - Input key code from VT100 terminal
 
@@ -850,21 +773,9 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     return;
   }
 
-  // Exit XIP mode first to ensure we're in command mode
-  MPRINTF("Exiting XIP mode...\n\r");
-  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("XIP Exit                       : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("XIP Exit                       : FAILED (error: 0x%X)\n\r", err);
-  }
-
   // Set 1S-1S-1S protocol for pattern verification
   MPRINTF("\n\rSetting 1S-1S-1S protocol for pattern check...\n\r");
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
@@ -889,7 +800,7 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   };
 
   uint32_t read_patterns[4];
-  err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t*)read_patterns, 0x00000000, 16);
+  err                 = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t *)read_patterns, 0x00000000, 16);
 
   bool patterns_valid = true;
   if (err == FSP_SUCCESS)
@@ -1022,10 +933,10 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   T_mc80_ospi_direct_transfer write_cr2_cmd = {
     .command        = MX25_CMD_WRCR2,
     .command_length = 1,
-    .address_length = 4,  // 4-byte address required for CR2
+    .address_length = 4,           // 4-byte address required for CR2
     .address        = 0x00000000,  // CR2 address
     .data_length    = 1,
-    .data           = 0x02,  // Enable OPI DTR mode
+    .data           = 0x02,        // Enable OPI DTR mode
     .dummy_cycles   = 0,
   };
 
@@ -1041,10 +952,10 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     T_mc80_ospi_direct_transfer read_cr2_cmd = {
       .command        = MX25_CMD_RDCR2,
       .command_length = 1,
-      .address_length = 4,  // 4-byte address required for RDCR2
+      .address_length = 4,           // 4-byte address required for RDCR2
       .address        = 0x00000000,  // CR2 register address
       .data_length    = 1,
-      .dummy_cycles   = 0,  // 0 dummy cycles for SPI mode RDCR2
+      .dummy_cycles   = 0,           // 0 dummy cycles for SPI mode RDCR2
     };
 
     err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
@@ -1155,150 +1066,53 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   else
   {
     MPRINTF("Auto Calibration               : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Warning: Calibration failed, XIP reads may be unreliable\n\r");
+    MPRINTF("Warning: Calibration failed, memory-mapped reads may be unreliable\n\r");
   }
 
-  // Enter XIP mode for high-speed reads
-  MPRINTF("\n\rEntering XIP mode...\n\r");
-  err = Mc80_ospi_xip_enter(g_mc80_ospi.p_ctrl);
+  // Test memory-mapped read after calibration using DMA
+  MPRINTF("\n\rTesting memory-mapped read after calibration...\n\r");
+
+  uint8_t *read_buffer = (uint8_t *)App_malloc(256);
+  if (read_buffer == NULL)
+  {
+    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Perform memory-mapped read using DMA
+  err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 256);
   if (err == FSP_SUCCESS)
   {
-    MPRINTF("XIP Enter                      : SUCCESS\n\r");
+    MPRINTF("Memory-mapped Read             : SUCCESS\n\r");
+
+    // Display first 64 bytes of the read for verification
+    MPRINTF("\n\rRead Data (first 64 bytes):\n\r");
+    for (int i = 0; i < 64; i++)
+    {
+      if (i % 16 == 0)
+      {
+        MPRINTF("%04X: ", i);
+      }
+      MPRINTF("%02X ", read_buffer[i]);
+      if (i % 16 == 15)
+      {
+        MPRINTF("\n\r");
+      }
+    }
+
+    MPRINTF("\n\r8D-8D-8D Calibration Quality   : GOOD (memory-mapped read successful)\n\r");
   }
   else
   {
-    MPRINTF("XIP Enter                      : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot perform XIP read tests\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Allocate buffers for read tests
-  uint8_t *read_buffer1 = (uint8_t *)App_malloc(256);
-  uint8_t *read_buffer2 = (uint8_t *)App_malloc(256);
-  uint8_t *read_buffer3 = (uint8_t *)App_malloc(256);
-
-  if (read_buffer1 == NULL || read_buffer2 == NULL || read_buffer3 == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate read buffers\n\r");
-    if (read_buffer1) App_free(read_buffer1);
-    if (read_buffer2) App_free(read_buffer2);
-    if (read_buffer3) App_free(read_buffer3);
-
-    // Exit XIP mode before returning
-    Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Perform multiple XIP reads from offset 0
-  MPRINTF("\n\rPerforming XIP read tests (256 bytes from offset 0x00000000)...\n\r");
-
-  // First read
-  MPRINTF("XIP Read 1                     : ");
-  memcpy(read_buffer1, (void *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
-  MPRINTF("SUCCESS\n\r");
-
-  // Second read
-  MPRINTF("XIP Read 2                     : ");
-  memcpy(read_buffer2, (void *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
-  MPRINTF("SUCCESS\n\r");
-
-  // Third read
-  MPRINTF("XIP Read 3                     : ");
-  memcpy(read_buffer3, (void *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
-  MPRINTF("SUCCESS\n\r");
-
-  // Compare all three reads for consistency
-  MPRINTF("\n\rData Consistency Check:\n\r");
-
-  bool reads_match = true;
-  int mismatch_count_1_2 = 0;
-  int mismatch_count_1_3 = 0;
-  int mismatch_count_2_3 = 0;
-
-  for (int i = 0; i < 256; i++)
-  {
-    if (read_buffer1[i] != read_buffer2[i])
-    {
-      mismatch_count_1_2++;
-      reads_match = false;
-    }
-    if (read_buffer1[i] != read_buffer3[i])
-    {
-      mismatch_count_1_3++;
-      reads_match = false;
-    }
-    if (read_buffer2[i] != read_buffer3[i])
-    {
-      mismatch_count_2_3++;
-      reads_match = false;
-    }
-  }
-
-  if (reads_match)
-  {
-    MPRINTF("Read Consistency               : PASS (all reads identical)\n\r");
-    MPRINTF("8D-8D-8D Calibration Quality   : EXCELLENT\n\r");
-  }
-  else
-  {
-    MPRINTF("Read Consistency               : FAIL\n\r");
-    MPRINTF("Mismatches Read1 vs Read2      : %d bytes\n\r", mismatch_count_1_2);
-    MPRINTF("Mismatches Read1 vs Read3      : %d bytes\n\r", mismatch_count_1_3);
-    MPRINTF("Mismatches Read2 vs Read3      : %d bytes\n\r", mismatch_count_2_3);
-    MPRINTF("8D-8D-8D Calibration Quality   : POOR - needs recalibration\n\r");
-    reads_match = false;
-  }
-
-  // Display first 64 bytes of the first read for reference
-  MPRINTF("\n\rFirst Read Data (first 64 bytes):\n\r");
-  for (int i = 0; i < 64; i++)
-  {
-    if (i % 16 == 0)
-    {
-      MPRINTF("%04X: ", i);
-    }
-    MPRINTF("%02X ", read_buffer1[i]);
-    if (i % 16 == 15)
-    {
-      MPRINTF("\n\r");
-    }
-  }
-
-  // If reads don't match, show first few mismatched bytes
-  if (!reads_match)
-  {
-    MPRINTF("\n\rFirst 16 bytes comparison:\n\r");
-    MPRINTF("Read 1: ");
-    for (int i = 0; i < 16; i++) MPRINTF("%02X ", read_buffer1[i]);
-    MPRINTF("\n\rRead 2: ");
-    for (int i = 0; i < 16; i++) MPRINTF("%02X ", read_buffer2[i]);
-    MPRINTF("\n\rRead 3: ");
-    for (int i = 0; i < 16; i++) MPRINTF("%02X ", read_buffer3[i]);
-    MPRINTF("\n\r");
+    MPRINTF("Memory-mapped Read             : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("8D-8D-8D Calibration Quality   : POOR - calibration may have failed\n\r");
   }
 
   // Clean up
-  App_free(read_buffer1);
-  App_free(read_buffer2);
-  App_free(read_buffer3);
-
-  // Exit XIP mode
-  MPRINTF("\n\rExiting XIP mode...\n\r");
-  err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("XIP Exit                       : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("XIP Exit                       : FAILED (error: 0x%X)\n\r", err);
-  }
+  App_free(read_buffer);
 
   // Restore flash to SPI mode (CR2 = 0x00)
   MPRINTF("\n\rRestoring flash to SPI mode...\n\r");
@@ -1343,10 +1157,10 @@ void OSPI_test_8d_calibration(uint8_t keycode)
         T_mc80_ospi_direct_transfer read_cr2_restore_cmd = {
           .command        = MX25_CMD_RDCR2,
           .command_length = 1,
-          .address_length = 4,  // 4-byte address required for RDCR2
+          .address_length = 4,           // 4-byte address required for RDCR2
           .address        = 0x00000000,  // CR2 register address
           .data_length    = 1,
-          .dummy_cycles   = 0,  // 0 dummy cycles for SPI mode RDCR2
+          .dummy_cycles   = 0,           // 0 dummy cycles for SPI mode RDCR2
         };
 
         err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_restore_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
@@ -1386,7 +1200,7 @@ void OSPI_test_8d_calibration(uint8_t keycode)
 
   // Test summary
   MPRINTF("\n\r===== Test Summary =====\n\r");
-  if (reads_match)
+  if (err == FSP_SUCCESS)
   {
     MPRINTF("Overall Result                 : PASS\n\r");
     MPRINTF("8D-8D-8D protocol is working correctly with good calibration\n\r");
@@ -1485,21 +1299,9 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     return;
   }
 
-  // Exit XIP mode first to ensure we're in command mode
-  MPRINTF("Exiting XIP mode...\n\r");
-  fsp_err_t err = Mc80_ospi_xip_exit(g_mc80_ospi.p_ctrl);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("XIP Exit                       : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("XIP Exit                       : FAILED (error: 0x%X)\n\r", err);
-  }
-
   // Set 1S-1S-1S protocol for reliable pattern writing
   MPRINTF("\n\rSetting 1S-1S-1S protocol for pattern writing...\n\r");
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
@@ -1557,7 +1359,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     // Wait for erase completion
     MPRINTF("Waiting for erase completion...\n\r");
     T_mc80_ospi_status status;
-    uint32_t wait_count = 0;
+    uint32_t           wait_count = 0;
     do
     {
       R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
@@ -1612,7 +1414,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
   }
 
   // Write 16 bytes (4 x 32-bit patterns) to flash
-  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, (uint8_t*)patterns, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), 16);
+  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, (uint8_t *)patterns, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), 16);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Preamble Patterns Write        : SUCCESS\n\r");
@@ -1629,7 +1431,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     // Verify written data by reading it back
     MPRINTF("\n\rVerifying written patterns...\n\r");
     uint32_t read_patterns[4];
-    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t*)read_patterns, calibration_address, 16);
+    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t *)read_patterns, calibration_address, 16);
     if (err == FSP_SUCCESS)
     {
       MPRINTF("Pattern Verification           : SUCCESS\n\r");

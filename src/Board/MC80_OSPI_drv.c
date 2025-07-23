@@ -18,6 +18,9 @@ static bool g_ospi_dma_event_flags_initialized = false;
 #define OSPI_DMA_EVENT_TRANSFER_ERROR     (0x00000002UL)
 #define OSPI_DMA_EVENT_ALL_EVENTS         (OSPI_DMA_EVENT_TRANSFER_COMPLETE | OSPI_DMA_EVENT_TRANSFER_ERROR)
 
+// DMA completion timeout (1 second = 1000 ms in ThreadX ticks, assuming 1ms tick period)
+#define OSPI_DMA_COMPLETION_TIMEOUT_MS    (1000UL)
+
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
 -----------------------------------------------------------------------------------------------------*/
@@ -103,7 +106,7 @@ static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_i
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
-static void _Ospi_dma_callback(dmac_callback_args_t *p_args);
+void OSPI_dma_callback(dmac_callback_args_t *p_args);
 static fsp_err_t _Ospi_dma_event_flags_initialize(void);
 static void _Ospi_dma_event_flags_cleanup(void);
 
@@ -1654,13 +1657,17 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   1. Validates input parameters (pointers, size limits, alignment)
   2. Calculates memory-mapped address based on channel and input address
   3. Configures DMA for memory-to-memory transfer from flash to destination buffer
-  4. Starts DMA transfer and waits for completion
-  5. Returns success when transfer is complete
+  4. Clears DMA completion event flags
+  5. Starts DMA transfer asynchronously
+  6. Waits for DMA completion using RTOS event flags (callback-driven)
+  7. Verifies transfer success using infoGet API
+  8. Returns success when transfer is verified complete
 
   Performance Benefits:
   - DMA handles data transfer without CPU intervention
   - Maximum throughput for large data transfers
   - CPU can perform other tasks during transfer
+  - RTOS-based asynchronous completion notification
   - Hardware-optimized memory access patterns
 
   Memory-mapped Address Calculation:
@@ -1674,7 +1681,7 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   - Destination: User-provided buffer
   - Transfer mode: Memory-to-memory
   - Transfer size: 1 byte increments
-  - Completion: Waits for transfer completion
+  - Completion: Asynchronous callback with RTOS event notification
 
   Parameters: p_ctrl - Pointer to OSPI instance control structure
               p_dest - Destination buffer for read data
@@ -1684,7 +1691,9 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   Return: FSP_SUCCESS - Data read successfully
           FSP_ERR_ASSERTION - Invalid parameters
           FSP_ERR_NOT_OPEN - Driver not opened
-          FSP_ERR_UNSUPPORTED - XIP support not enabled
+          FSP_ERR_TIMEOUT - DMA completion timeout
+          FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
+          FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
           Error codes from DMA operations
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
@@ -1733,6 +1742,9 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
     return err;
   }
 
+  // Clear DMA event flags before starting transfer
+  Mc80_ospi_dma_transfer_reset_flags();
+
   // Start DMA transfer
   err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
   if (FSP_SUCCESS != err)
@@ -1740,20 +1752,25 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, 
     return err;
   }
 
-  // Wait for DMA transfer to complete with proper error handling
-  volatile transfer_properties_t transfer_properties = { 0U };
-  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
+  // Wait for DMA completion using RTOS event flags (asynchronous)
+  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
   if (FSP_SUCCESS != err)
   {
     return err;
   }
-  while (FSP_SUCCESS == err && transfer_properties.transfer_length_remaining > 0)
+
+  // Verify transfer completion status using infoGet
+  transfer_properties_t transfer_properties = { 0U };
+  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+  if (FSP_SUCCESS != err)
   {
-    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
-    if (FSP_SUCCESS != err)
-    {
-      return err;
-    }
+    return err;
+  }
+
+  // Check if transfer completed successfully (remaining length should be 0)
+  if (transfer_properties.transfer_length_remaining > 0)
+  {
+    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
   }
 
   return FSP_SUCCESS;
@@ -1879,13 +1896,25 @@ fsp_err_t Mc80_ospi_hardware_reset(T_mc80_ospi_instance_ctrl* const p_ctrl)
   wake up waiting tasks. The callback is safe to call from interrupt context as it only
   sends RTOS notifications.
 
+  The p_args parameter contains a dmac_callback_args_t structure with a single p_context field.
+  This context pointer can be configured in MC80_OSPI_config.c in the g_transfer_OSPI_extend
+  structure's .p_context field to pass custom data to the callback. The context can point to:
+  - A control structure for state management
+  - A synchronization object (mutex, semaphore, event flags)
+  - Custom user data for callback processing
+  - NULL if no context is needed (current configuration)
+
+  The dmac_int_isr() function creates the callback args structure and copies the configured
+  p_context value from the DMA configuration into p_args->p_context before calling this callback.
+
   Parameters:
-    p_args - Callback arguments (contains only p_context)
+    p_args - Pointer to dmac_callback_args_t structure containing:
+             p_args->p_context - User-configurable context pointer set in MC80_OSPI_config.c
 
   Return:
     void
 -----------------------------------------------------------------------------------------------------*/
-static void _Ospi_dma_callback(dmac_callback_args_t *p_args)
+void OSPI_dma_callback(dmac_callback_args_t *p_args)
 {
   // Send RTOS event notification if event flags are initialized
   if (g_ospi_dma_event_flags_initialized)
