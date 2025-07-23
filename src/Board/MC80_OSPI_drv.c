@@ -97,6 +97,14 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 // Number of address bytes in 4 byte address mode
 #define MC80_OSPI_4_BYTE_ADDRESS                         (4U)
 
+// Size of 64-byte block for optimized memory-mapped write operations
+// This value is coordinated with MC80_OSPI_CFG_COMBINATION_FUNCTION (64-byte)
+// for optimal hardware performance and combination write functionality
+#define MC80_OSPI_BLOCK_WRITE_SIZE                       (64U)
+
+// Timeout for waiting device ready status before write operation (1 second in ThreadX ticks)
+#define MC80_OSPI_DEVICE_READY_TIMEOUT_MS                (1000UL)
+
 /*-----------------------------------------------------------------------------------------------------
   Static function prototypes
 -----------------------------------------------------------------------------------------------------*/
@@ -679,12 +687,20 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Program a page of data to the flash using memory-mapped DMA transfer.
+  Program data to the flash using memory-mapped DMA transfer with 64-byte block optimization.
 
   This function performs high-performance flash programming using the OSPI memory-mapped mode
-  combined with DMA (Direct Memory Access) for efficient data transfer. It operates fundamentally
-  differently from the direct transfer functions by using the hardware's automatic memory-mapped
-  interface rather than manual command sequences.
+  combined with DMA (Direct Memory Access) for efficient data transfer. The function processes
+  data in optimized 64-byte blocks to maximize performance with the hardware combination function.
+
+  Block-Based Write Operation:
+  - Data is processed in 64-byte blocks for optimal hardware performance
+  - Block size (MC80_OSPI_BLOCK_WRITE_SIZE) is coordinated with MC80_OSPI_CFG_COMBINATION_FUNCTION
+  - 64-byte blocks match the combination function setting (MC80_OSPI_COMBINATION_FUNCTION_64BYTE)
+  - Each block is written using a separate DMA transfer with write enable sequence
+  - Final partial block (if any) is handled separately to ensure complete data transfer
+  - Supports any total size from 1 byte to full page size (typically 256 bytes)
+  - Hardware combination function optimizes small write operations automatically
 
   Protocol and Operation Method:
   - Uses memory-mapped write mode where flash appears as regular system memory
@@ -697,11 +713,12 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   1. Configures DMAC (Direct Memory Access Controller) for bufferable write operations
   2. Sets up block-mode transfer from source buffer to memory-mapped flash address
   3. Enables OSPI DMA Bufferable Write (DMBWR) for optimal performance
-  4. Clears DMA completion event flags before starting transfer
-  5. Starts DMA transfer in repeat mode for continuous data streaming
-  6. Waits for DMA completion using RTOS event flags (asynchronous, 1-second timeout)
-  7. Verifies transfer completion using infoGet API to check remaining transfer length
-  8. Handles combination write function for small transfers (< combination bytes)
+  4. Processes data in 64-byte blocks with separate DMA transfers for each block
+  5. Clears DMA completion event flags before starting each transfer
+  6. Starts DMA transfer in repeat mode for continuous data streaming
+  7. Waits for DMA completion using RTOS event flags (asynchronous, 1-second timeout)
+  8. Verifies transfer completion using infoGet API to check remaining transfer length
+  9. Handles combination write function for small transfers (< combination bytes)
 
   RTOS Integration for DMA Completion:
   - Uses ThreadX event flags for asynchronous DMA completion notification
@@ -711,7 +728,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   - Callback-driven completion detection for optimal performance
 
   Write Enable and Status Management:
-  - Automatically sends Write Enable command before programming
+  - Automatically sends Write Enable command before each block programming
   - Verifies write enable status through status register polling
   - Checks device busy status to prevent conflicts with ongoing operations
   - Uses the current protocol's write enable and status commands
@@ -720,6 +737,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   - Enforces page boundary constraints (typically 256 bytes)
   - Requires 8-byte alignment for CPU access compatibility
   - Validates transfer size and alignment for hardware requirements
+  - Supports partial blocks at the end of data for flexible size handling
 
   Hardware Integration:
   - Leverages OSPI peripheral's automatic command generation
@@ -731,7 +749,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
     p_ctrl     - Pointer to the control structure
     p_src      - Source data buffer
     p_dest     - Destination address in flash (memory-mapped address)
-    byte_count - Number of bytes to write
+    byte_count - Number of bytes to write (any size from 1 to page size)
 
   Return:
     FSP_SUCCESS            - The flash was programmed successfully
@@ -741,7 +759,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
     FSP_ERR_DEVICE_BUSY    - Another Write/Erase transaction is in progress
     FSP_ERR_WRITE_FAILED   - Write operation failed
     FSP_ERR_INVALID_ADDRESS- Destination or source is not aligned to CPU access alignment when not using the DMAC
-    FSP_ERR_TIMEOUT        - DMA completion timeout (1 second)
+    FSP_ERR_TIMEOUT        - Device ready timeout (1 second) or DMA completion timeout
     FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
     FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
 -----------------------------------------------------------------------------------------------------*/
@@ -785,81 +803,129 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 #endif
   }
 
-  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
+  R_XSPI0_Type *const p_reg                    = p_ctrl->p_reg;
 
-  if (true == _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit))
-  {
-    return FSP_ERR_DEVICE_BUSY;
-  }
-
-  // Setup and start DMAC transfer
-  T_mc80_ospi_extended_cfg const *p_cfg_extend             = p_ctrl->p_cfg->p_extend;
-  transfer_instance_t const      *p_transfer               = p_cfg_extend->p_lower_lvl_transfer;
+  // Setup DMA transfer configuration
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
 
   // Enable Octa-SPI DMA Bufferable Write
-  dmac_extended_cfg_t const *p_dmac_extend                 = p_transfer->p_cfg->p_extend;
-  R_DMAC0_Type              *p_dma_reg                     = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
-  p_dma_reg->DMBWR                                         = R_DMAC0_DMBWR_BWE_Msk;
+  dmac_extended_cfg_t const *p_dmac_extend     = p_transfer->p_cfg->p_extend;
+  R_DMAC0_Type              *p_dma_reg         = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
+  p_dma_reg->DMBWR                             = R_DMAC0_DMBWR_BWE_Msk;
 
-  // Update the block-mode transfer settings
-  p_transfer->p_cfg->p_info->p_src                         = p_src;
-  p_transfer->p_cfg->p_info->p_dest                        = p_dest;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
-  p_transfer->p_cfg->p_info->length                        = (uint16_t)byte_count;
-  err                                                      = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
-  if (FSP_SUCCESS != err)
+  // Process data in 64-byte blocks for optimal performance
+  uint32_t bytes_remaining                     = byte_count;
+  uint32_t offset                              = 0;
+
+  while (bytes_remaining > 0)
   {
-    return err;
-  }
+    // Wait for device ready status before starting new block write operation
+    uint32_t timeout_ticks = MS_TO_TICKS(MC80_OSPI_DEVICE_READY_TIMEOUT_MS);
+    uint32_t start_time    = tx_time_get();
 
-  _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
+    while (true == _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit))
+    {
+      // Check timeout
+      if ((tx_time_get() - start_time) >= timeout_ticks)
+      {
+        err = FSP_ERR_TIMEOUT;
+        break;
+      }
 
-  // Clear DMA event flags before starting transfer
-  Mc80_ospi_dma_transfer_reset_flags();
+      // Wait one OS tick before checking status again
+      tx_thread_sleep(1);
+    }
 
-  // Start DMA
-  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
+    // Exit main loop if timeout occurred
+    if (FSP_ERR_TIMEOUT == err)
+    {
+      break;
+    }
 
-  // Wait for DMA completion using RTOS event flags (asynchronous)
-  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
+    // Determine current block size (64 bytes or remaining bytes, whichever is smaller)
+    uint32_t current_block_size;
+    if (bytes_remaining >= MC80_OSPI_BLOCK_WRITE_SIZE)
+    {
+      current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
+    }
+    else
+    {
+      current_block_size = bytes_remaining;
+    }
 
-  // Verify transfer completion status using infoGet
-  transfer_properties_t transfer_properties = { 0U };
-  err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
+    // Configure DMA for current block transfer
+    p_transfer->p_cfg->p_info->p_src                         = (uint8_t const *)p_src + offset;
+    p_transfer->p_cfg->p_info->p_dest                        = (uint8_t *)p_dest + offset;
+    p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    p_transfer->p_cfg->p_info->length                        = (uint16_t)current_block_size;
 
-  // Check if transfer completed successfully (remaining length should be 0)
-  if (transfer_properties.transfer_length_remaining > 0)
-  {
-    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
+    // Reconfigure DMA with current block settings
+    err                                                      = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Enable write for current block
+    err = _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Clear DMA event flags before starting transfer
+    Mc80_ospi_dma_transfer_reset_flags();
+
+    // Start DMA transfer for current block
+    err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Wait for DMA completion using RTOS event flags (asynchronous)
+    err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Verify transfer completion status using infoGet
+    transfer_properties_t transfer_properties = { 0U };
+    err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Check if transfer completed successfully (remaining length should be 0)
+    if (transfer_properties.transfer_length_remaining > 0)
+    {
+      err = FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
+      break;
+    }
+
+    // Handle combination write function for blocks smaller than combination bytes
+    if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
+    {
+      uint8_t combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
+      if (current_block_size < combo_bytes)
+      {
+        p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
+      }
+    }
+
+    // Move to next block
+    offset += current_block_size;
+    bytes_remaining -= current_block_size;
   }
 
   // Disable Octa-SPI DMA Bufferable Write
   p_dma_reg->DMBWR = 0U;
 
-  // If this number of bytes is less than the combination count, push the data to force a transaction
-  if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
-  {
-    uint8_t combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
-    if (byte_count < combo_bytes)
-    {
-      p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
-    }
-  }
-
-  return FSP_SUCCESS;
+  return err;
 }
 
 /*-----------------------------------------------------------------------------------------------------
