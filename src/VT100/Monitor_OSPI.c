@@ -9,8 +9,23 @@
 
 #include "App.h"
 
-#define OSPI_TEST_PATTERN_SIZE 256
-#define OSPI_TEST_SECTOR_SIZE  4096
+// Test data sizes
+#define OSPI_TEST_PATTERN_SIZE           256
+#define OSPI_TEST_SECTOR_SIZE            4096
+
+// Read operation sizes
+#define OSPI_DIRECT_READ_SIZE            4096   // Size for direct read test
+#define OSPI_MEMORY_MAPPED_READ_SIZE     4096   // Size for memory-mapped read test
+#define OSPI_CONTINUOUS_READ_SIZE        128    // Size for continuous read test
+#define OSPI_JEDEC_ID_SIZE               3      // JEDEC ID read size
+
+// Write operation sizes
+#define OSPI_MEMORY_MAPPED_WRITE_SIZE    256    // Size for memory-mapped write test
+#define OSPI_SECTOR_WRITE_SIZE           256    // Size for sector test write chunks
+#define OSPI_PREAMBLE_PATTERN_SIZE       256    // Size for preamble pattern write
+
+// Display sizes
+#define OSPI_DISPLAY_PREVIEW_SIZE        64     // Size for data preview display
 
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
@@ -98,8 +113,8 @@ void OSPI_test_info(uint8_t keycode)
 
   // Read JEDEC ID using RDID command
   MPRINTF("\n\r===== JEDEC ID Information =====\n\r");
-  uint8_t jedec_id[3] = { 0 };
-  err                 = Mc80_ospi_read_id(g_mc80_ospi.p_ctrl, jedec_id, 3);
+  uint8_t jedec_id[OSPI_JEDEC_ID_SIZE] = { 0 };
+  err                                  = Mc80_ospi_read_id(g_mc80_ospi.p_ctrl, jedec_id, OSPI_JEDEC_ID_SIZE);
   if (FSP_SUCCESS == err)
   {
     MPRINTF("JEDEC ID                       : 0x%02X 0x%02X 0x%02X\n\r", jedec_id[0], jedec_id[1], jedec_id[2]);
@@ -267,8 +282,8 @@ void OSPI_test_read(uint8_t keycode)
   }
   MPRINTF("Protocol switched successfully\n\r");
 
-  // Allocate buffer for reading 256 bytes
-  uint8_t *read_buffer = App_malloc(256);
+  // Allocate buffer for reading data
+  uint8_t *read_buffer = App_malloc(OSPI_DIRECT_READ_SIZE);
   if (NULL == read_buffer)
   {
     MPRINTF("ERROR: Failed to allocate memory for read buffer\n\r");
@@ -278,10 +293,10 @@ void OSPI_test_read(uint8_t keycode)
     return;
   }
 
-  MPRINTF("Reading 256 bytes from address 0x00000000 using Mc80_ospi_direct_read...\n\r");
+  MPRINTF("Reading %d bytes from address 0x00000000 using Mc80_ospi_direct_read...\n\r", OSPI_DIRECT_READ_SIZE);
 
-  // Read 256 bytes from offset 0 using direct read
-  fsp_err_t err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, 256);
+  // Read data from offset 0 using direct read
+  fsp_err_t err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, OSPI_DIRECT_READ_SIZE);
   if (err != FSP_SUCCESS)
   {
     MPRINTF("Direct read failed: 0x%X\n\r", err);
@@ -292,10 +307,10 @@ void OSPI_test_read(uint8_t keycode)
     return;
   }
 
-  MPRINTF("Direct read successful! Data from address 0x00000000 (256 bytes):\n\r");
+  MPRINTF("Direct read successful! Data from address 0x00000000 (%d bytes):\n\r", OSPI_DIRECT_READ_SIZE);
 
   // Display the read data in hexadecimal format (16 bytes per line)
-  for (int i = 0; i < 256; i++)
+  for (int i = 0; i < OSPI_DIRECT_READ_SIZE; i++)
   {
     if (i % 16 == 0)
     {
@@ -373,8 +388,8 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
     return;
   }
 
-  uint8_t *write_buffer = (uint8_t *)App_malloc(256);
-  uint8_t *read_buffer  = (uint8_t *)App_malloc(256);
+  uint8_t *write_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_WRITE_SIZE);
+  uint8_t *read_buffer  = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_WRITE_SIZE);
 
   if (write_buffer == NULL || read_buffer == NULL)
   {
@@ -394,12 +409,12 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
 
   MPRINTF("Creating test pattern with random base: 0x%02X\n\r", base_value);
 
-  for (int i = 0; i < 256; i++)
+  for (int i = 0; i < OSPI_MEMORY_MAPPED_WRITE_SIZE; i++)
   {
     write_buffer[i] = base_value + i;
   }
 
-  MPRINTF("Test pattern created (256 bytes: 0x%02X + increment)\n\r", base_value);
+  MPRINTF("Test pattern created (%d bytes: 0x%02X + increment)\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE, base_value);
 
   // Check flash status
   T_mc80_ospi_status status;
@@ -416,8 +431,8 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
   }
 
   // Perform write
-  MPRINTF("Writing 256 bytes to flash offset 0x00000000...\n\r");
-  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
+  MPRINTF("Writing %d bytes to flash offset 0x00000000...\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE);
+  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_MEMORY_MAPPED_WRITE_SIZE);
 
   if (err == FSP_SUCCESS)
   {
@@ -435,15 +450,15 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
     // Read back and verify using direct read
     MPRINTF("Reading back data using Mc80_ospi_direct_read...\n\r");
 
-    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, 256);
+    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, OSPI_MEMORY_MAPPED_WRITE_SIZE);
 
     if (err == FSP_SUCCESS)
     {
       MPRINTF("Direct read: SUCCESS\n\r");
 
-      // Display first 64 bytes of read data
-      MPRINTF("Read data (first 64 bytes):\n\r");
-      for (int i = 0; i < 64; i++)
+      // Display first portion of read data
+      MPRINTF("Read data (first %d bytes):\n\r", OSPI_DISPLAY_PREVIEW_SIZE);
+      for (int i = 0; i < OSPI_DISPLAY_PREVIEW_SIZE; i++)
       {
         if (i % 16 == 0)
         {
@@ -459,7 +474,7 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
       // Compare data
       bool match       = true;
       int  error_count = 0;
-      for (int i = 0; i < 256; i++)
+      for (int i = 0; i < OSPI_MEMORY_MAPPED_WRITE_SIZE; i++)
       {
         if (write_buffer[i] != read_buffer[i])
         {
@@ -473,7 +488,7 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
 
       if (match)
       {
-        MPRINTF("Data verification: PASS (all 256 bytes match)\n\r");
+        MPRINTF("Data verification: PASS (all %d bytes match)\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE);
       }
       else
       {
@@ -561,7 +576,7 @@ void OSPI_test_erase(uint8_t keycode)
     return;
   }
 
-  uint8_t *read_buffer = (uint8_t *)App_malloc(256);
+  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
   if (read_buffer == NULL)
   {
     MPRINTF("ERROR: Failed to allocate read buffer\n\r");
@@ -619,7 +634,7 @@ void OSPI_test_erase(uint8_t keycode)
       MPRINTF("Reading back erased data for verification...\n\r");
 
       // Read data using memory-mapped read
-      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 256);
+      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
 
       if (err == FSP_SUCCESS)
       {
@@ -627,7 +642,7 @@ void OSPI_test_erase(uint8_t keycode)
 
         // Check if all bytes are 0xFF (erased state)
         bool erased = true;
-        for (int i = 0; i < 256; i++)
+        for (int i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
         {
           if (read_buffer[i] != 0xFF)
           {
@@ -735,10 +750,10 @@ void OSPI_test_sector(uint8_t keycode)
   }
 
   MPRINTF("This test will take several seconds...\n\r");
-  MPRINTF("Testing sector operations in chunks of 256 bytes\n\r");
+  MPRINTF("Testing sector operations in chunks of %d bytes\n\r", OSPI_SECTOR_WRITE_SIZE);
 
-  uint8_t *chunk_write = (uint8_t *)App_malloc(256);
-  uint8_t *chunk_read  = (uint8_t *)App_malloc(256);
+  uint8_t *chunk_write = (uint8_t *)App_malloc(OSPI_SECTOR_WRITE_SIZE);
+  uint8_t *chunk_read  = (uint8_t *)App_malloc(OSPI_SECTOR_WRITE_SIZE);
 
   // Declare variables used in goto sections to avoid bypass warnings
   T_mc80_ospi_status status;
@@ -776,20 +791,20 @@ void OSPI_test_sector(uint8_t keycode)
 
   MPRINTF("Sector erased in %u ms\n\r", wait_count);
 
-  // Write and verify each 256-byte chunk
+  // Write and verify each chunk
   errors = 0;
-  for (int chunk = 0; chunk < 16; chunk++)  // 4096 / 256 = 16 chunks
+  for (int chunk = 0; chunk < (OSPI_TEST_SECTOR_SIZE / OSPI_SECTOR_WRITE_SIZE); chunk++)
   {
-    uint32_t address = chunk * 256;
+    uint32_t address = chunk * OSPI_SECTOR_WRITE_SIZE;
 
     // Create unique pattern for this chunk
-    for (int i = 0; i < 256; i++)
+    for (int i = 0; i < OSPI_SECTOR_WRITE_SIZE; i++)
     {
       chunk_write[i] = (uint8_t)((chunk << 4) | (i & 0x0F));
     }
 
     // Write chunk
-    err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
+    err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), OSPI_SECTOR_WRITE_SIZE);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Write chunk %d failed: 0x%X\n\r", chunk, err);
@@ -805,10 +820,10 @@ void OSPI_test_sector(uint8_t keycode)
     } while (status.write_in_progress);
 
     // Read back chunk
-    memset(chunk_read, 0, 256);
+    memset(chunk_read, 0, OSPI_SECTOR_WRITE_SIZE);
 
     // Read data using memory-mapped read
-    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, chunk_read, address, 256);
+    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, chunk_read, address, OSPI_SECTOR_WRITE_SIZE);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Read chunk %d failed: 0x%X\n\r", chunk, err);
@@ -818,7 +833,7 @@ void OSPI_test_sector(uint8_t keycode)
 
     // Verify chunk
     bool chunk_ok = true;
-    for (int i = 0; i < 256; i++)
+    for (int i = 0; i < OSPI_SECTOR_WRITE_SIZE; i++)
     {
       if (chunk_write[i] != chunk_read[i])
       {
@@ -1162,7 +1177,7 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   // Test memory-mapped read after calibration using DMA
   MPRINTF("\n\rTesting memory-mapped read after calibration...\n\r");
 
-  uint8_t *read_buffer = (uint8_t *)App_malloc(256);
+  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
   if (read_buffer == NULL)
   {
     MPRINTF("ERROR: Failed to allocate read buffer\n\r");
@@ -1173,14 +1188,14 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   }
 
   // Perform memory-mapped read using DMA
-  err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 256);
+  err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Memory-mapped Read             : SUCCESS\n\r");
 
-    // Display first 64 bytes of the read for verification
-    MPRINTF("\n\rRead Data (first 64 bytes):\n\r");
-    for (int i = 0; i < 64; i++)
+    // Display first portion of the read for verification
+    MPRINTF("\n\rRead Data (first %d bytes):\n\r", OSPI_DISPLAY_PREVIEW_SIZE);
+    for (int i = 0; i < OSPI_DISPLAY_PREVIEW_SIZE; i++)
     {
       if (i % 16 == 0)
       {
@@ -1566,7 +1581,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Test memory-mapped read function by reading and displaying first 256 bytes from flash
+  Description: Test memory-mapped read function by reading and displaying data from flash
 
   Parameters: keycode - Input key code from VT100 terminal
 
@@ -1605,10 +1620,10 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   }
   MPRINTF("Protocol set successfully\n\r");
 
-  // Allocate buffers for three reads (256 bytes each)
-  uint8_t *read_buffer1 = (uint8_t *)App_malloc(256);
-  uint8_t *read_buffer2 = (uint8_t *)App_malloc(256);
-  uint8_t *read_buffer3 = (uint8_t *)App_malloc(256);
+  // Allocate buffers for three reads
+  uint8_t *read_buffer1 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
+  uint8_t *read_buffer2 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
+  uint8_t *read_buffer3 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
 
   if (read_buffer1 == NULL || read_buffer2 == NULL || read_buffer3 == NULL)
   {
@@ -1623,14 +1638,14 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   }
 
   // Clear buffers before reading
-  memset(read_buffer1, 0x00, 256);
-  memset(read_buffer2, 0x00, 256);
-  memset(read_buffer3, 0x00, 256);
+  memset(read_buffer1, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
+  memset(read_buffer2, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
+  memset(read_buffer3, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
 
-  MPRINTF("Reading first 256 bytes from flash address 0x00000000...\n\r");
+  MPRINTF("Reading first %d bytes from flash address 0x00000000...\n\r", OSPI_MEMORY_MAPPED_READ_SIZE);
 
   // Perform first memory-mapped read using DMA
-  fsp_err_t err1 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer1, 0x00000000, 256);
+  fsp_err_t err1 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer1, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
 
   if (err1 != FSP_SUCCESS)
   {
@@ -1647,7 +1662,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   MPRINTF("First read                    : SUCCESS\n\r");
 
   // Perform second memory-mapped read for comparison using DMA
-  fsp_err_t err2 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer2, 0x00000000, 256);
+  fsp_err_t err2 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer2, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
 
   if (err2 != FSP_SUCCESS)
   {
@@ -1664,7 +1679,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   MPRINTF("Second read                   : SUCCESS\n\r");
 
   // Perform third memory-mapped read for comparison using DMA
-  fsp_err_t err3 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer3, 0x00000000, 256);
+  fsp_err_t err3 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer3, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
 
   if (err3 != FSP_SUCCESS)
   {
@@ -1682,7 +1697,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
 
   // Compare all three reads
   bool reads_match = true;
-  for (uint32_t i = 0; i < 256; i++)
+  for (uint32_t i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
   {
     if (read_buffer1[i] != read_buffer2[i] || read_buffer1[i] != read_buffer3[i])
     {
@@ -1703,7 +1718,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   MPRINTF("\n\rData read from flash:\n\r");
 
   // Display data in hex format (16 bytes per line) from first read
-  for (uint32_t i = 0; i < 256; i += 16)
+  for (uint32_t i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i += 16)
   {
     // Print address
     MPRINTF("0x%08X: ", i);
@@ -1711,7 +1726,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
     // Print hex values
     for (uint32_t j = 0; j < 16; j++)
     {
-      if (i + j < 256)
+      if (i + j < OSPI_MEMORY_MAPPED_READ_SIZE)
       {
         MPRINTF("%02X ", read_buffer1[i + j]);
       }
@@ -1726,7 +1741,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
     // Print ASCII representation
     for (uint32_t j = 0; j < 16; j++)
     {
-      if (i + j < 256)
+      if (i + j < OSPI_MEMORY_MAPPED_READ_SIZE)
       {
         uint8_t byte_val = read_buffer1[i + j];
         if (byte_val >= 32 && byte_val <= 126)  // Printable ASCII
@@ -1905,7 +1920,7 @@ void OSPI_test_8d_continuous_read(uint8_t keycode)
   WAIT_CHAR(&start_key, ms_to_ticks(100000));
 
   // Allocate buffer for read data
-  uint8_t *read_buffer = (uint8_t *)App_malloc(64);
+  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_CONTINUOUS_READ_SIZE);
   if (read_buffer == NULL)
   {
     MPRINTF("ERROR: Failed to allocate read buffer\n\r");
