@@ -102,7 +102,7 @@ static bool g_ospi_dma_event_flags_initialized = false;
 -----------------------------------------------------------------------------------------------------*/
 static bool                                _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit_pos);
 static fsp_err_t                           _Mc80_ospi_protocol_specific_settings(T_mc80_ospi_instance_ctrl *p_ctrl);
-static fsp_err_t                           _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
+static fsp_err_t                           _Mc80_ospi_memory_mapped_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void                                _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl *p_ctrl, T_mc80_ospi_direct_transfer *const p_transfer, T_mc80_ospi_direct_transfer_dir direction);
 static T_mc80_ospi_xspi_command_set const *_Mc80_ospi_command_set_get(T_mc80_ospi_instance_ctrl *p_ctrl);
 static void _Mc80_ospi_xip(T_mc80_ospi_instance_ctrl *p_ctrl, bool is_entering);
@@ -199,7 +199,7 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
   // Perform xSPI Initial configuration as described in hardware manual
   // Set xSPI protocol mode
   uint32_t liocfg                        = ((uint32_t)p_cfg->spi_protocol) << OSPI_LIOCFGCSN_PRTMD_Pos;
-  p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
+  // NOTE: Do NOT write to LIOCFGCS yet - we need to add timing settings first
 
   // Set xSPI drive/sampling timing
   if (MC80_OSPI_DEVICE_NUMBER_0 == p_ctrl->channel)
@@ -226,7 +226,7 @@ fsp_err_t Mc80_ospi_open(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_cf
   liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->sdr_sampling_delay << OSPI_LIOCFGCSN_SDRSMPSFT_Pos) & OSPI_LIOCFGCSN_SDRSMPSFT_Msk;
   liocfg |= ((uint32_t)p_cfg_extend->p_timing_settings->ddr_sampling_extension << OSPI_LIOCFGCSN_DDRSMPEX_Pos) & OSPI_LIOCFGCSN_DDRSMPEX_Msk;
 
-  // Set xSPI CSn signal timings
+  // Set xSPI CSn signal timings (write complete configuration at once)
   p_reg->LIOCFGCS[p_cfg_extend->channel] = liocfg;
 
   // Set xSPI memory-mapping operation
@@ -549,6 +549,136 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 }
 
 /*-----------------------------------------------------------------------------------------------------
+  Description: High-performance memory-mapped read from flash using DMA transfer
+
+  This function performs optimized memory-mapped reading from OSPI flash memory using DMA
+  for maximum performance. The function directly accesses the memory-mapped flash region
+  and uses DMA to transfer data to the destination buffer.
+
+  Operation sequence:
+  1. Validates input parameters (pointers, size limits, alignment)
+  2. Calculates memory-mapped address based on channel and input address
+  3. Configures DMA for memory-to-memory transfer from flash to destination buffer
+  4. Clears DMA completion event flags
+  5. Starts DMA transfer asynchronously
+  6. Waits for DMA completion using RTOS event flags (callback-driven)
+  7. Verifies transfer success using infoGet API
+  8. Returns success when transfer is verified complete
+
+  Performance Benefits:
+  - DMA handles data transfer without CPU intervention
+  - Maximum throughput for large data transfers
+  - CPU can perform other tasks during transfer
+  - RTOS-based asynchronous completion notification
+  - Hardware-optimized memory access patterns
+
+  Memory-mapped Address Calculation:
+  - Device 0 (Channel 0): Flash appears at 0x80000000 + flash_address
+  - Device 1 (Channel 1): Flash appears at 0x90000000 + flash_address
+  - Input address parameter should be the physical flash address (0x00000000-based)
+  - Function automatically calculates the correct memory-mapped address
+
+  DMA Configuration:
+  - Source: Memory-mapped flash address
+  - Destination: User-provided buffer
+  - Transfer mode: Memory-to-memory
+  - Transfer size: 1 byte increments
+  - Completion: Asynchronous callback with RTOS event notification
+
+  Parameters: p_ctrl - Pointer to OSPI instance control structure
+              p_dest - Destination buffer for read data
+              address - Physical flash address to read from (0x00000000-based)
+              bytes - Number of bytes to read
+
+  Return: FSP_SUCCESS - Data read successfully
+          FSP_ERR_ASSERTION - Invalid parameters
+          FSP_ERR_NOT_OPEN - Driver not opened
+          FSP_ERR_TIMEOUT - DMA completion timeout
+          FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
+          FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
+          Error codes from DMA operations
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
+{
+  // Parameter validation
+  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
+  {
+    if ((NULL == p_ctrl) || (NULL == p_dest) || (0 == bytes))
+    {
+      return FSP_ERR_ASSERTION;
+    }
+    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+    {
+      return FSP_ERR_NOT_OPEN;
+    }
+  }
+
+  fsp_err_t err = FSP_SUCCESS;
+
+  // Calculate memory-mapped address based on channel
+  uint32_t memory_mapped_address;
+  if (p_ctrl->channel == MC80_OSPI_DEVICE_NUMBER_0)
+  {
+    memory_mapped_address = MC80_OSPI_DEVICE_0_START_ADDRESS + address;
+  }
+  else
+  {
+    memory_mapped_address = MC80_OSPI_DEVICE_1_START_ADDRESS + address;
+  }
+
+  // Get DMA transfer instance from OSPI configuration
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
+
+  // Configure DMA for memory-to-memory transfer
+  p_transfer->p_cfg->p_info->p_src                         = (void const *)memory_mapped_address;
+  p_transfer->p_cfg->p_info->p_dest                        = p_dest;
+  p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+  p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+  p_transfer->p_cfg->p_info->length                        = (uint16_t)bytes;
+
+  // Reconfigure DMA with new settings
+  err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Clear DMA event flags before starting transfer
+  Mc80_ospi_dma_transfer_reset_flags();
+
+  // Start DMA transfer
+  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Wait for DMA completion using RTOS event flags (asynchronous)
+  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Verify transfer completion status using infoGet
+  transfer_properties_t transfer_properties = { 0U };
+  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+  if (FSP_SUCCESS != err)
+  {
+    return err;
+  }
+
+  // Check if transfer completed successfully (remaining length should be 0)
+  if (transfer_properties.transfer_length_remaining > 0)
+  {
+    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
+  }
+
+  return FSP_SUCCESS;
+}
+
+/*-----------------------------------------------------------------------------------------------------
   Program a page of data to the flash using memory-mapped DMA transfer.
 
   This function performs high-performance flash programming using the OSPI memory-mapped mode
@@ -567,9 +697,18 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
   1. Configures DMAC (Direct Memory Access Controller) for bufferable write operations
   2. Sets up block-mode transfer from source buffer to memory-mapped flash address
   3. Enables OSPI DMA Bufferable Write (DMBWR) for optimal performance
-  4. Starts DMA transfer in repeat mode for continuous data streaming
-  5. Waits for DMA completion to ensure deterministic operation
-  6. Handles combination write function for small transfers (< combination bytes)
+  4. Clears DMA completion event flags before starting transfer
+  5. Starts DMA transfer in repeat mode for continuous data streaming
+  6. Waits for DMA completion using RTOS event flags (asynchronous, 1-second timeout)
+  7. Verifies transfer completion using infoGet API to check remaining transfer length
+  8. Handles combination write function for small transfers (< combination bytes)
+
+  RTOS Integration for DMA Completion:
+  - Uses ThreadX event flags for asynchronous DMA completion notification
+  - Task is suspended until DMA callback sets completion event flag
+  - Provides 1-second timeout protection against stuck DMA transfers
+  - More efficient than polling, allows CPU to perform other tasks during transfer
+  - Callback-driven completion detection for optimal performance
 
   Write Enable and Status Management:
   - Automatically sends Write Enable command before programming
@@ -602,8 +741,11 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
     FSP_ERR_DEVICE_BUSY    - Another Write/Erase transaction is in progress
     FSP_ERR_WRITE_FAILED   - Write operation failed
     FSP_ERR_INVALID_ADDRESS- Destination or source is not aligned to CPU access alignment when not using the DMAC
+    FSP_ERR_TIMEOUT        - DMA completion timeout (1 second)
+    FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
+    FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
 -----------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
+fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
 {
   fsp_err_t err = FSP_SUCCESS;
 
@@ -671,7 +813,10 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
     return err;
   }
 
-  _Mc80_ospi_write_enable(p_ctrl);
+  _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
+
+  // Clear DMA event flags before starting transfer
+  Mc80_ospi_dma_transfer_reset_flags();
 
   // Start DMA
   err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
@@ -680,20 +825,25 @@ fsp_err_t Mc80_ospi_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *cons
     return err;
   }
 
-  // Wait for DMAC to complete to maintain deterministic processing and backward compatibility
-  volatile transfer_properties_t transfer_properties = { 0U };
-  err                                                = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
+  // Wait for DMA completion using RTOS event flags (asynchronous)
+  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
   if (FSP_SUCCESS != err)
   {
     return err;
   }
-  while (FSP_SUCCESS == err && transfer_properties.transfer_length_remaining > 0)
+
+  // Verify transfer completion status using infoGet
+  transfer_properties_t transfer_properties = { 0U };
+  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+  if (FSP_SUCCESS != err)
   {
-    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, (transfer_properties_t *)&transfer_properties);
-    if (FSP_SUCCESS != err)
-    {
-      return err;
-    }
+    return err;
+  }
+
+  // Check if transfer completed successfully (remaining length should be 0)
+  if (transfer_properties.transfer_length_remaining > 0)
+  {
+    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
   }
 
   // Disable Octa-SPI DMA Bufferable Write
@@ -790,7 +940,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     return FSP_ERR_ASSERTION;
   }
 
-  fsp_err_t err = _Mc80_ospi_write_enable(p_ctrl);
+  fsp_err_t err = _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
   if (FSP_SUCCESS != err)
   {
     return err;
@@ -1139,7 +1289,7 @@ static bool _Mc80_ospi_status_sub(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t bit
     FSP_SUCCESS         - Write enable operation completed
     FSP_ERR_NOT_ENABLED - Write enable failed
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
+static fsp_err_t _Mc80_ospi_memory_mapped_write_enable(T_mc80_ospi_instance_ctrl *p_ctrl)
 {
   T_mc80_ospi_xspi_command_set const *const p_cmd_set = p_ctrl->p_cmd_set;
 
@@ -1646,135 +1796,6 @@ fsp_err_t Mc80_ospi_read_id(T_mc80_ospi_instance_ctrl *const p_ctrl, uint8_t *co
   return FSP_SUCCESS;
 }
 
-/*-----------------------------------------------------------------------------------------------------
-  Description: High-performance memory-mapped read from flash using DMA transfer
-
-  This function performs optimized memory-mapped reading from OSPI flash memory using DMA
-  for maximum performance. The function directly accesses the memory-mapped flash region
-  and uses DMA to transfer data to the destination buffer.
-
-  Operation sequence:
-  1. Validates input parameters (pointers, size limits, alignment)
-  2. Calculates memory-mapped address based on channel and input address
-  3. Configures DMA for memory-to-memory transfer from flash to destination buffer
-  4. Clears DMA completion event flags
-  5. Starts DMA transfer asynchronously
-  6. Waits for DMA completion using RTOS event flags (callback-driven)
-  7. Verifies transfer success using infoGet API
-  8. Returns success when transfer is verified complete
-
-  Performance Benefits:
-  - DMA handles data transfer without CPU intervention
-  - Maximum throughput for large data transfers
-  - CPU can perform other tasks during transfer
-  - RTOS-based asynchronous completion notification
-  - Hardware-optimized memory access patterns
-
-  Memory-mapped Address Calculation:
-  - Device 0 (Channel 0): Flash appears at 0x80000000 + flash_address
-  - Device 1 (Channel 1): Flash appears at 0x90000000 + flash_address
-  - Input address parameter should be the physical flash address (0x00000000-based)
-  - Function automatically calculates the correct memory-mapped address
-
-  DMA Configuration:
-  - Source: Memory-mapped flash address
-  - Destination: User-provided buffer
-  - Transfer mode: Memory-to-memory
-  - Transfer size: 1 byte increments
-  - Completion: Asynchronous callback with RTOS event notification
-
-  Parameters: p_ctrl - Pointer to OSPI instance control structure
-              p_dest - Destination buffer for read data
-              address - Physical flash address to read from (0x00000000-based)
-              bytes - Number of bytes to read
-
-  Return: FSP_SUCCESS - Data read successfully
-          FSP_ERR_ASSERTION - Invalid parameters
-          FSP_ERR_NOT_OPEN - Driver not opened
-          FSP_ERR_TIMEOUT - DMA completion timeout
-          FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
-          FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
-          Error codes from DMA operations
------------------------------------------------------------------------------------------------------*/
-fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl* const p_ctrl, uint8_t* const p_dest, uint32_t const address, uint32_t const bytes)
-{
-  // Parameter validation
-  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
-  {
-    if ((NULL == p_ctrl) || (NULL == p_dest) || (0 == bytes))
-    {
-      return FSP_ERR_ASSERTION;
-    }
-    if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
-    {
-      return FSP_ERR_NOT_OPEN;
-    }
-  }
-
-  fsp_err_t err = FSP_SUCCESS;
-
-  // Calculate memory-mapped address based on channel
-  uint32_t memory_mapped_address;
-  if (p_ctrl->channel == MC80_OSPI_DEVICE_NUMBER_0)
-  {
-    memory_mapped_address = MC80_OSPI_DEVICE_0_START_ADDRESS + address;
-  }
-  else
-  {
-    memory_mapped_address = MC80_OSPI_DEVICE_1_START_ADDRESS + address;
-  }
-
-  // Get DMA transfer instance from OSPI configuration
-  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
-  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
-
-  // Configure DMA for memory-to-memory transfer
-  p_transfer->p_cfg->p_info->p_src                         = (void const *)memory_mapped_address;
-  p_transfer->p_cfg->p_info->p_dest                        = p_dest;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
-  p_transfer->p_cfg->p_info->length                        = (uint16_t)bytes;
-
-  // Reconfigure DMA with new settings
-  err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Clear DMA event flags before starting transfer
-  Mc80_ospi_dma_transfer_reset_flags();
-
-  // Start DMA transfer
-  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Wait for DMA completion using RTOS event flags (asynchronous)
-  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Verify transfer completion status using infoGet
-  transfer_properties_t transfer_properties = { 0U };
-  err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Check if transfer completed successfully (remaining length should be 0)
-  if (transfer_properties.transfer_length_remaining > 0)
-  {
-    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
-  }
-
-  return FSP_SUCCESS;
-}
 
 /*-----------------------------------------------------------------------------------------------------
   Configures the device to enter or exit XiP mode
@@ -2071,4 +2092,130 @@ fsp_err_t Mc80_ospi_dma_wait_for_completion(ULONG timeout_ticks)
   {
     return FSP_ERR_INTERNAL;
   }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Captures a snapshot of all OSPI peripheral registers for debugging and analysis
+
+  This function reads and stores the current state of all OSPI (XSPI) peripheral registers
+  for both channels. This is useful for debugging protocol switching, calibration issues,
+  timing analysis, and general troubleshooting of OSPI operations.
+
+  Register Categories Captured:
+  - Control registers (LIOCTL, WRAPCFG, BMCTL0, BMCTL1)
+  - Channel configuration (LIOCFGCS, CMCFGCS for both channels)
+  - Calibration registers (CCCTLCS for both channels)
+  - Status and interrupt registers (INTS, COMSTT)
+  - Command buffer registers (CDBUF for both channels)
+  - Timing and protocol configuration
+
+  Usage Examples:
+  - Before/after protocol switching to verify register changes
+  - During calibration to analyze timing parameters
+  - When debugging read/write failures
+  - For performance analysis and optimization
+
+  Parameters:
+    p_ctrl - Pointer to OSPI instance control structure
+    p_snapshot - Pointer to structure to store register snapshot
+
+  Return:
+    FSP_SUCCESS - Register snapshot captured successfully
+    FSP_ERR_ASSERTION - Invalid parameters
+    FSP_ERR_NOT_OPEN - Driver is not opened
+-----------------------------------------------------------------------------------------------------*/
+fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p_ctrl, T_mc80_ospi_register_snapshot *const p_snapshot)
+{
+  // Parameter validation
+  if ((NULL == p_ctrl) || (NULL == p_snapshot))
+  {
+    return FSP_ERR_ASSERTION;
+  }
+
+  // Ensure the instance is open
+  if (MC80_OSPI_PRV_OPEN != p_ctrl->open)
+  {
+    return FSP_ERR_NOT_OPEN;
+  }
+
+  R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
+
+  // Clear the snapshot structure
+  memset(p_snapshot, 0, sizeof(T_mc80_ospi_register_snapshot));
+
+  // Capture timestamp
+  p_snapshot->timestamp = tx_time_get();
+  p_snapshot->channel = p_ctrl->channel;
+  p_snapshot->current_protocol = p_ctrl->spi_protocol;
+
+  // === Control and Configuration Registers ===
+  p_snapshot->lioctl = p_reg->LIOCTL;
+  p_snapshot->wrapcfg = p_reg->WRAPCFG;
+  p_snapshot->comcfg = p_reg->COMCFG;
+  p_snapshot->bmcfgch[0] = p_reg->BMCFGCH[0];
+  p_snapshot->bmcfgch[1] = p_reg->BMCFGCH[1];
+  p_snapshot->bmctl0 = p_reg->BMCTL0;
+  p_snapshot->bmctl1 = p_reg->BMCTL1;
+  p_snapshot->abmcfg = p_reg->ABMCFG;
+
+  // === Channel Configuration Registers (Both Channels) ===
+  for (int ch = 0; ch < 2; ch++)
+  {
+    p_snapshot->liocfgcs[ch] = p_reg->LIOCFGCS[ch];
+    p_snapshot->cmcfgcs[ch].cmcfg0 = p_reg->CMCFGCS[ch].CMCFG0;
+    p_snapshot->cmcfgcs[ch].cmcfg1 = p_reg->CMCFGCS[ch].CMCFG1;
+    p_snapshot->cmcfgcs[ch].cmcfg2 = p_reg->CMCFGCS[ch].CMCFG2;
+  }
+
+  // === Calibration Control Registers (Both Channels) ===
+  for (int ch = 0; ch < 2; ch++)
+  {
+    p_snapshot->ccctlcs[ch].ccctl0 = p_reg->CCCTLCS[ch].CCCTL0;
+    p_snapshot->ccctlcs[ch].ccctl1 = p_reg->CCCTLCS[ch].CCCTL1;
+    p_snapshot->ccctlcs[ch].ccctl2 = p_reg->CCCTLCS[ch].CCCTL2;
+    p_snapshot->ccctlcs[ch].ccctl3 = p_reg->CCCTLCS[ch].CCCTL3;
+    p_snapshot->ccctlcs[ch].ccctl4 = p_reg->CCCTLCS[ch].CCCTL4;
+    p_snapshot->ccctlcs[ch].ccctl5 = p_reg->CCCTLCS[ch].CCCTL5;
+    p_snapshot->ccctlcs[ch].ccctl6 = p_reg->CCCTLCS[ch].CCCTL6;
+    p_snapshot->ccctlcs[ch].ccctl7 = p_reg->CCCTLCS[ch].CCCTL7;
+  }
+
+  // === Status and Interrupt Registers ===
+  p_snapshot->ints = p_reg->INTS;
+  p_snapshot->intc = 0; // INTC is write-only register, set to 0 for reference
+  p_snapshot->inte = p_reg->INTE;
+  p_snapshot->comstt = p_reg->COMSTT;
+  p_snapshot->verstt = p_reg->VERSTT;
+
+  // === Calibration Status Registers ===
+  for (int ch = 0; ch < 2; ch++)
+  {
+    p_snapshot->casttcs[ch] = p_reg->CASTTCS[ch];
+  }
+
+  // === Command Buffer Registers (Both Channels) ===
+  for (int ch = 0; ch < 2; ch++)
+  {
+    p_snapshot->cdbuf[ch].cdt = p_reg->CDBUF[ch].CDT;
+    p_snapshot->cdbuf[ch].cda = p_reg->CDBUF[ch].CDA;
+    p_snapshot->cdbuf[ch].cdd0 = p_reg->CDBUF[ch].CDD0;
+    p_snapshot->cdbuf[ch].cdd1 = p_reg->CDBUF[ch].CDD1;
+  }
+
+  // === Manual Command Control ===
+  p_snapshot->cdctl0 = p_reg->CDCTL0;
+  p_snapshot->cdctl1 = p_reg->CDCTL1;
+  p_snapshot->cdctl2 = p_reg->CDCTL2;
+
+  // === Link Pattern Control Registers ===
+  p_snapshot->lpctl0 = p_reg->LPCTL0;
+  p_snapshot->lpctl1 = p_reg->LPCTL1;
+
+  // === XIP Control Registers ===
+  for (int ch = 0; ch < 2; ch++)
+  {
+    p_snapshot->cmctlch[ch] = p_reg->CMCTLCH[ch];
+  }
+
+  return FSP_SUCCESS;
 }

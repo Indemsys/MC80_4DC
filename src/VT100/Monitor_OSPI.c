@@ -21,9 +21,11 @@ void OSPI_test_sector(uint8_t keycode);
 void OSPI_test_8d_calibration(uint8_t keycode);
 void OSPI_write_preamble_patterns(uint8_t keycode);
 void OSPI_test_memory_mapped_read(uint8_t keycode);
+void OSPI_test_8d_continuous_read(uint8_t keycode);
 
 // Internal helper functions
 static fsp_err_t _Ospi_ensure_driver_open(void);
+static void      _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
@@ -34,6 +36,7 @@ const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '6', OSPI_test_sector, 0 },
   { '7', OSPI_test_8d_calibration, 0 },
   { '8', OSPI_write_preamble_patterns, 0 },
+  { '9', OSPI_test_8d_continuous_read, 0 },
   { 'R', 0, 0 },
   { 0 }
 };
@@ -49,6 +52,7 @@ const T_VT100_Menu MENU_OSPI = {
   "\033[5C <6> - Full sector test (write/read/verify)\r\n"
   "\033[5C <7> - 8D-8D-8D protocol & calibration test\r\n"
   "\033[5C <8> - Write calibration preamble patterns\r\n"
+  "\033[5C <9> - 8D-8D-8D continuous read test (100ms)\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
@@ -340,7 +344,7 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
 
   // Perform write
   MPRINTF("Writing 256 bytes to flash offset 0x00000000...\n\r");
-  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
+  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), 256);
 
   if (err == FSP_SUCCESS)
   {
@@ -680,7 +684,7 @@ void OSPI_test_sector(uint8_t keycode)
     }
 
     // Write chunk
-    err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
+    err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), 256);
     if (err != FSP_SUCCESS)
     {
       MPRINTF("Write chunk %d failed: 0x%X\n\r", chunk, err);
@@ -840,43 +844,11 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     MPRINTF("\n\rPreamble patterns verified     : SUCCESS\n\r");
   }
 
-  // Now set 8D-8D-8D protocol for calibration
-  MPRINTF("\n\rSetting 8D-8D-8D protocol for calibration...\n\r");
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot continue without protocol setup\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Configure flash to OPI DTR mode before testing 8D-8D-8D
+  // Configure flash to OPI DTR mode before setting 8D-8D-8D protocol
   MPRINTF("\n\rConfiguring flash for OPI DTR mode...\n\r");
 
-  // First, switch back to 1S-1S-1S to send the configuration command
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("1S-1S-1S Protocol Restored     : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("1S-1S-1S Protocol Restored     : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
   // Read CR2 before making changes to see current state
-  MPRINTF("\n\rReading current CR2 value...\n\r");
+  MPRINTF("Reading current CR2 value...\n\r");
   T_mc80_ospi_direct_transfer read_cr2_initial_cmd = {
     .command        = MX25_CMD_RDCR2,
     .command_length = 1,
@@ -945,55 +917,68 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   {
     MPRINTF("CR2 Write (OPI DTR Enable)     : SUCCESS\n\r");
 
-    // Wait for write completion
+    // Wait for write completion and flash mode switch
     R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-
-    // Try to read back CR2 with SPI command (may fail if chip switched to OPI)
-    T_mc80_ospi_direct_transfer read_cr2_cmd = {
-      .command        = MX25_CMD_RDCR2,
-      .command_length = 1,
-      .address_length = 4,           // 4-byte address required for RDCR2
-      .address        = 0x00000000,  // CR2 register address
-      .data_length    = 1,
-      .dummy_cycles   = 0,           // 0 dummy cycles for SPI mode RDCR2
-    };
-
-    err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
-    if (err == FSP_SUCCESS)
-    {
-      uint8_t cr2_value = (uint8_t)(read_cr2_cmd.data & 0xFF);
-      MPRINTF("CR2 Read Back (SPI)            : SUCCESS (value: 0x%02X)\n\r", cr2_value);
-
-      if (cr2_value == 0x02)
-      {
-        MPRINTF("CR2 Verification               : PASS (OPI DTR enabled)\n\r");
-      }
-      else
-      {
-        MPRINTF("CR2 Verification               : FAIL (expected 0x02, got 0x%02X)\n\r", cr2_value);
-      }
-    }
-    else
-    {
-      MPRINTF("CR2 Read Back (SPI)            : FAILED (error: 0x%X)\n\r", err);
-      MPRINTF("This likely means flash switched to OPI mode immediately\n\r");
-    }
-
-    // Now switch back to 8D-8D-8D protocol (flash should be in OPI DTR mode)
-    err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("8D-8D-8D Protocol Re-enabled   : SUCCESS\n\r");
-    }
-    else
-    {
-      MPRINTF("8D-8D-8D Protocol Re-enabled   : FAILED (error: 0x%X)\n\r", err);
-    }
+    MPRINTF("Flash should now be in OPI DTR mode\n\r");
   }
   else
   {
     MPRINTF("CR2 Write (OPI DTR Enable)     : FAILED (error: 0x%X)\n\r", err);
     MPRINTF("Flash may not support OPI DTR mode switch\n\r");
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Now set 8D-8D-8D protocol for calibration
+  MPRINTF("\n\rSetting 8D-8D-8D protocol for calibration...\n\r");
+  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
+  }
+  else
+  {
+    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("Cannot continue without protocol setup\n\r");
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Now verify CR2 in OPI DTR mode using 8D-8D-8D commands
+  MPRINTF("\n\rVerifying CR2 in OPI DTR mode...\n\r");
+  T_mc80_ospi_direct_transfer read_cr2_opi_cmd = {
+    .command        = MX25_OPI_RDCR2_STR,  // OPI DTR command for reading CR2 (0x8E8E)
+    .command_length = 2,                   // 2-byte command for OPI DTR
+    .address_length = 4,                   // 4-byte address
+    .address        = 0x00000000,          // CR2 register address
+    .data_length    = 2,                   // Read 2 bytes in OPI DTR mode
+    .dummy_cycles   = 4,                   // 4 dummy cycles for OPI DTR CR2 read
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_opi_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
+  if (err == FSP_SUCCESS)
+  {
+    uint8_t cr2_value = (uint8_t)(read_cr2_opi_cmd.data & 0xFF);
+    MPRINTF("CR2 Read Back (OPI DTR)        : SUCCESS (value: 0x%02X)\n\r", cr2_value);
+
+    if (cr2_value == 0x02)
+    {
+      MPRINTF("CR2 Verification               : PASS (OPI DTR confirmed)\n\r");
+    }
+    else
+    {
+      MPRINTF("CR2 Verification               : FAIL (expected 0x02, got 0x%02X)\n\r", cr2_value);
+      MPRINTF("Flash may not be in OPI DTR mode\n\r");
+    }
+  }
+  else
+  {
+    MPRINTF("CR2 Read Back (OPI DTR)        : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("This may indicate flash is not in OPI DTR mode\n\r");
   }
 
   // Test 8D-8D-8D read before calibration
@@ -1414,7 +1399,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
   }
 
   // Write 16 bytes (4 x 32-bit patterns) to flash
-  err = Mc80_ospi_write(g_mc80_ospi.p_ctrl, (uint8_t *)patterns, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), 16);
+  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, (uint8_t *)patterns, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), 16);
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Preamble Patterns Write        : SUCCESS\n\r");
@@ -1645,4 +1630,534 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   MPRINTF("\n\rPress any key to continue...\n\r");
   uint8_t dummy_key;
   WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: 8D-8D-8D continuous read test with memory-mapped DMA and register analysis
+
+  This function demonstrates continuous high-speed reading from OSPI flash in 8D-8D-8D mode using
+  memory-mapped DMA transfers. It configures the flash to OPI DTR mode, switches the controller
+  protocol, captures register snapshots before/after protocol switch, and performs continuous
+  memory-mapped reading with display refresh every 100ms.
+
+  Features:
+  - Automatic flash configuration to OPI DTR mode (CR2 = 0x02)
+  - Controller protocol switch to 8D-8D-8D with register snapshot analysis
+  - High-performance memory-mapped DMA reading (64 bytes per cycle)
+  - Register difference analysis showing protocol switch effects
+  - Real-time display update every 100ms
+  - User can exit by pressing any key
+
+  Technical Implementation:
+  - Uses Mc80_ospi_memory_mapped_read() for optimal DMA performance
+  - Captures complete OSPI register snapshots before/after protocol switch
+  - Analyzes key register changes (LIOCFGCS, CMCFGCS, WRAPCFG, etc.)
+  - Provides timing analysis of protocol switching
+
+  Parameters:
+    keycode - Menu key pressed (unused)
+
+  Return:
+    void
+-----------------------------------------------------------------------------------------------------*/
+
+void OSPI_test_8d_continuous_read(uint8_t keycode)
+{
+  GET_MCBL;
+  MPRINTF(VT100_CLEAR_AND_HOME);
+  MPRINTF(" ===== 8D-8D-8D Continuous Read Test =====\n\r");
+
+  // Ensure OSPI driver is open
+  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  if (init_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Set 1S-1S-1S protocol for flash configuration
+  MPRINTF("Setting 1S-1S-1S protocol for flash configuration...\n\r");
+  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set 1S-1S-1S protocol (0x%X)\n\r", err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
+
+  // Configure flash to OPI DTR mode
+  MPRINTF("Configuring flash for OPI DTR mode...\n\r");
+
+  // Write Enable for CR2 configuration
+  T_mc80_ospi_direct_transfer write_enable_cmd = {
+    .command        = MX25_CMD_WREN,
+    .command_length = 1,
+    .address_length = 0,
+    .address        = 0,
+    .data_length    = 0,
+    .dummy_cycles   = 0,
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Write Enable failed (0x%X)\n\r", err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Write CR2 to enable OPI DTR mode (value 0x02)
+  T_mc80_ospi_direct_transfer write_cr2_cmd = {
+    .command        = MX25_CMD_WRCR2,
+    .command_length = 1,
+    .address_length = 4,           // 4-byte address required for CR2
+    .address        = 0x00000000,  // CR2 address
+    .data_length    = 1,
+    .data           = 0x02,        // Enable OPI DTR mode
+    .dummy_cycles   = 0,
+  };
+
+  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: CR2 Write failed (0x%X)\n\r", err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Wait for flash mode switch
+  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+  MPRINTF("CR2 Write (OPI DTR Enable)     : SUCCESS\n\r");
+
+  // Capture register snapshot BEFORE 8D-8D-8D protocol switch
+  T_mc80_ospi_register_snapshot snapshot_before = { 0 };
+  MPRINTF("Capturing register snapshot before 8D-8D-8D switch...\n\r");
+  err = Mc80_ospi_capture_register_snapshot(g_mc80_ospi.p_ctrl, &snapshot_before);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("WARNING: Failed to capture snapshot before switch (0x%X)\n\r", err);
+  }
+  else
+  {
+    MPRINTF("Before Snapshot Captured       : SUCCESS\n\r");
+  }
+
+  // Switch to 8D-8D-8D protocol
+  MPRINTF("Setting 8D-8D-8D protocol...\n\r");
+  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to set 8D-8D-8D protocol (0x%X)\n\r", err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");  // Capture register snapshot AFTER 8D-8D-8D protocol switch
+  T_mc80_ospi_register_snapshot snapshot_after = { 0 };
+  MPRINTF("Capturing register snapshot after 8D-8D-8D switch...\n\r");
+  err = Mc80_ospi_capture_register_snapshot(g_mc80_ospi.p_ctrl, &snapshot_after);
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("WARNING: Failed to capture snapshot after switch (0x%X)\n\r", err);
+  }
+  else
+  {
+    MPRINTF("After Snapshot Captured        : SUCCESS\n\r");
+  }
+
+  // Полный анализ изменений всех регистров OSPI
+  _Ospi_display_register_differences(&snapshot_before, &snapshot_after);
+
+  MPRINTF("\n\rPress any key to start continuous reading...\n\r");
+  uint8_t start_key;
+  WAIT_CHAR(&start_key, ms_to_ticks(100000));
+
+  // Allocate buffer for read data
+  uint8_t *read_buffer = (uint8_t *)App_malloc(64);
+  if (read_buffer == NULL)
+  {
+    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  MPRINTF("\n\rStarting WRAPCFG DQS shift test for 8D-8D-8D mode...\n\r");
+  MPRINTF("Testing all DQS shift values (0-31) with memory reads\n\r");
+  MPRINTF("Press any key to start or 'q' to skip\n\r\n\r");
+
+  uint8_t test_key;
+  if (WAIT_CHAR(&test_key, ms_to_ticks(100000)) == RES_OK && (test_key == 'q' || test_key == 'Q'))
+  {
+    MPRINTF("Test skipped by user\n\r");
+    App_free(read_buffer);
+    return;
+  }
+
+  R_XSPI0_Type *p_reg = (R_XSPI0_Type *)MC80_OSPI0_BASE_ADDRESS;
+
+  // Test DQS shift values from 0 to 31
+  for (uint32_t shift_val = 0; shift_val <= 31; shift_val++)
+  {
+    MPRINTF(VT100_CLEAR_AND_HOME);
+    MPRINTF(" ===== DQS Shift Value: %lu =====\n\r", shift_val);
+
+    // Set new DQS shift value for CS0
+    uint32_t wrapcfg_val = p_reg->WRAPCFG;
+    wrapcfg_val &= ~OSPI_WRAPCFG_DSSFTCS0_Msk;  // Clear current CS0 shift value
+    wrapcfg_val |= (shift_val << OSPI_WRAPCFG_DSSFTCS0_Pos) & OSPI_WRAPCFG_DSSFTCS0_Msk;
+    p_reg->WRAPCFG = wrapcfg_val;
+
+    MPRINTF("WRAPCFG DQS Shift set to: %lu\n\r", shift_val);
+    MPRINTF("WRAPCFG register value: 0x%08X\n\r\n\r", p_reg->WRAPCFG);
+
+    // Small delay for change to take effect
+    R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
+
+    // Perform memory-mapped read operation using DMA
+    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 64);
+
+    if (err == FSP_SUCCESS)
+    {
+      MPRINTF("Memory Read Status: SUCCESS\n\r\n\r");
+
+      // Display data in hex format (16 bytes per line)
+      for (int i = 0; i < 64; i++)
+      {
+        if (i % 16 == 0)
+        {
+          MPRINTF("%08X: ", i);  // Address
+        }
+
+        MPRINTF("%02X ", read_buffer[i]);
+
+        if (i % 16 == 15)
+        {
+          MPRINTF("\n\r");
+        }
+        else if (i % 8 == 7)
+        {
+          MPRINTF(" ");  // Extra space every 8 bytes
+        }
+      }
+
+      MPRINTF("\n\r");
+    }
+    else
+    {
+      MPRINTF("Memory Read Status: FAILED (error: 0x%X)\n\r", err);
+    }
+
+    MPRINTF("\n\rPress any key to continue to next value (or 'q' to quit): ");
+    uint8_t continue_key;
+    if (WAIT_CHAR(&continue_key, ms_to_ticks(100000)) == RES_OK)
+    {
+      if (continue_key == 'q' || continue_key == 'Q')
+      {
+        MPRINTF("\n\rTest stopped by user at DQS shift value %lu\n\r", shift_val);
+        break;
+      }
+    }
+  }
+
+  // Clean up
+  App_free(read_buffer);
+
+  MPRINTF("\n\rDQS timing test completed.\n\r");
+  MPRINTF("Press any key to continue...\n\r");
+  uint8_t dummy_key;
+  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Display comprehensive comparison of all OSPI register snapshots
+
+  This function performs a complete comparison of all registers captured in two OSPI register
+  snapshots and displays all differences in a structured format. It compares every register
+  field including control, configuration, calibration, status, and command buffer registers.
+
+  Parameters:
+    before - Pointer to snapshot taken before protocol switch
+    after  - Pointer to snapshot taken after protocol switch
+
+  Return:
+    void
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after)
+{
+  GET_MCBL;
+  MPRINTF("\n\r===== Complete Register Differences (Before -> After) =====\n\r");
+
+  uint32_t changes_count = 0;
+
+  // Metadata comparison
+  MPRINTF("\n\r--- Metadata ---\n\r");
+  MPRINTF("Protocol    : %s -> %s\n\r",
+          (before->current_protocol == MC80_OSPI_PROTOCOL_1S_1S_1S) ? "1S-1S-1S" : "8D-8D-8D",
+          (after->current_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D) ? "8D-8D-8D" : "1S-1S-1S");
+  MPRINTF("Channel     : %d -> %d\n\r", before->channel, after->channel);
+  MPRINTF("Timestamp   : %lu -> %lu (delta: %ld ticks)\n\r",
+          before->timestamp, after->timestamp, (long)(after->timestamp - before->timestamp));
+
+  // Control and Configuration Registers
+  MPRINTF("\n\r--- Control & Configuration Registers ---\n\r");
+
+  if (before->lioctl != after->lioctl)
+  {
+    MPRINTF("LIOCTL      : 0x%08lX -> 0x%08lX\n\r", before->lioctl, after->lioctl);
+    changes_count++;
+  }
+
+  if (before->wrapcfg != after->wrapcfg)
+  {
+    MPRINTF("WRAPCFG     : 0x%08lX -> 0x%08lX\n\r", before->wrapcfg, after->wrapcfg);
+    changes_count++;
+  }
+
+  if (before->comcfg != after->comcfg)
+  {
+    MPRINTF("COMCFG      : 0x%08lX -> 0x%08lX\n\r", before->comcfg, after->comcfg);
+    changes_count++;
+  }
+
+  if (before->bmcfgch[0] != after->bmcfgch[0])
+  {
+    MPRINTF("BMCFGCH[0]  : 0x%08lX -> 0x%08lX\n\r", before->bmcfgch[0], after->bmcfgch[0]);
+    changes_count++;
+  }
+
+  if (before->bmcfgch[1] != after->bmcfgch[1])
+  {
+    MPRINTF("BMCFGCH[1]  : 0x%08lX -> 0x%08lX\n\r", before->bmcfgch[1], after->bmcfgch[1]);
+    changes_count++;
+  }
+
+  if (before->bmctl0 != after->bmctl0)
+  {
+    MPRINTF("BMCTL0      : 0x%08lX -> 0x%08lX\n\r", before->bmctl0, after->bmctl0);
+    changes_count++;
+  }
+
+  if (before->bmctl1 != after->bmctl1)
+  {
+    MPRINTF("BMCTL1      : 0x%08lX -> 0x%08lX\n\r", before->bmctl1, after->bmctl1);
+    changes_count++;
+  }
+
+  if (before->abmcfg != after->abmcfg)
+  {
+    MPRINTF("ABMCFG      : 0x%08lX -> 0x%08lX\n\r", before->abmcfg, after->abmcfg);
+    changes_count++;
+  }
+
+  // Channel Configuration Registers
+  MPRINTF("\n\r--- Channel Configuration Registers ---\n\r");
+
+  for (int ch = 0; ch < 2; ch++)
+  {
+    if (before->liocfgcs[ch] != after->liocfgcs[ch])
+    {
+      MPRINTF("LIOCFGCS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->liocfgcs[ch], after->liocfgcs[ch]);
+      changes_count++;
+    }
+
+    if (before->cmcfgcs[ch].cmcfg0 != after->cmcfgcs[ch].cmcfg0)
+    {
+      MPRINTF("CMCFG0CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg0, after->cmcfgcs[ch].cmcfg0);
+      changes_count++;
+    }
+
+    if (before->cmcfgcs[ch].cmcfg1 != after->cmcfgcs[ch].cmcfg1)
+    {
+      MPRINTF("CMCFG1CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg1, after->cmcfgcs[ch].cmcfg1);
+      changes_count++;
+    }
+
+    if (before->cmcfgcs[ch].cmcfg2 != after->cmcfgcs[ch].cmcfg2)
+    {
+      MPRINTF("CMCFG2CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg2, after->cmcfgcs[ch].cmcfg2);
+      changes_count++;
+    }
+  }
+
+  // Calibration Control Registers
+  MPRINTF("\n\r--- Calibration Control Registers ---\n\r");
+
+  for (int ch = 0; ch < 2; ch++)
+  {
+    if (before->ccctlcs[ch].ccctl0 != after->ccctlcs[ch].ccctl0)
+    {
+      MPRINTF("CCCTL0CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl0, after->ccctlcs[ch].ccctl0);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl1 != after->ccctlcs[ch].ccctl1)
+    {
+      MPRINTF("CCCTL1CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl1, after->ccctlcs[ch].ccctl1);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl2 != after->ccctlcs[ch].ccctl2)
+    {
+      MPRINTF("CCCTL2CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl2, after->ccctlcs[ch].ccctl2);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl3 != after->ccctlcs[ch].ccctl3)
+    {
+      MPRINTF("CCCTL3CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl3, after->ccctlcs[ch].ccctl3);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl4 != after->ccctlcs[ch].ccctl4)
+    {
+      MPRINTF("CCCTL4CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl4, after->ccctlcs[ch].ccctl4);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl5 != after->ccctlcs[ch].ccctl5)
+    {
+      MPRINTF("CCCTL5CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl5, after->ccctlcs[ch].ccctl5);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl6 != after->ccctlcs[ch].ccctl6)
+    {
+      MPRINTF("CCCTL6CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl6, after->ccctlcs[ch].ccctl6);
+      changes_count++;
+    }
+    if (before->ccctlcs[ch].ccctl7 != after->ccctlcs[ch].ccctl7)
+    {
+      MPRINTF("CCCTL7CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl7, after->ccctlcs[ch].ccctl7);
+      changes_count++;
+    }
+  }
+
+  // Status and Interrupt Registers
+  MPRINTF("\n\r--- Status & Interrupt Registers ---\n\r");
+
+  if (before->ints != after->ints)
+  {
+    MPRINTF("INTS        : 0x%08lX -> 0x%08lX\n\r", before->ints, after->ints);
+    changes_count++;
+  }
+
+  if (before->inte != after->inte)
+  {
+    MPRINTF("INTE        : 0x%08lX -> 0x%08lX\n\r", before->inte, after->inte);
+    changes_count++;
+  }
+
+  if (before->comstt != after->comstt)
+  {
+    MPRINTF("COMSTT      : 0x%08lX -> 0x%08lX\n\r", before->comstt, after->comstt);
+    changes_count++;
+  }
+
+  if (before->verstt != after->verstt)
+  {
+    MPRINTF("VERSTT      : 0x%08lX -> 0x%08lX\n\r", before->verstt, after->verstt);
+    changes_count++;
+  }
+
+  // Calibration Status Registers
+  MPRINTF("\n\r--- Calibration Status Registers ---\n\r");
+
+  for (int ch = 0; ch < 2; ch++)
+  {
+    if (before->casttcs[ch] != after->casttcs[ch])
+    {
+      MPRINTF("CASTTCS[%d]  : 0x%08lX -> 0x%08lX\n\r", ch, before->casttcs[ch], after->casttcs[ch]);
+      changes_count++;
+    }
+  }
+
+  // Command Buffer Registers
+  MPRINTF("\n\r--- Command Buffer Registers ---\n\r");
+
+  for (int ch = 0; ch < 2; ch++)
+  {
+    if (before->cdbuf[ch].cdt != after->cdbuf[ch].cdt)
+    {
+      MPRINTF("CDT[%d]      : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdt, after->cdbuf[ch].cdt);
+      changes_count++;
+    }
+    if (before->cdbuf[ch].cda != after->cdbuf[ch].cda)
+    {
+      MPRINTF("CDA[%d]      : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cda, after->cdbuf[ch].cda);
+      changes_count++;
+    }
+    if (before->cdbuf[ch].cdd0 != after->cdbuf[ch].cdd0)
+    {
+      MPRINTF("CDD0[%d]     : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdd0, after->cdbuf[ch].cdd0);
+      changes_count++;
+    }
+    if (before->cdbuf[ch].cdd1 != after->cdbuf[ch].cdd1)
+    {
+      MPRINTF("CDD1[%d]     : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdd1, after->cdbuf[ch].cdd1);
+      changes_count++;
+    }
+  }
+
+  // Manual Command Control
+  MPRINTF("\n\r--- Manual Command Control ---\n\r");
+
+  if (before->cdctl0 != after->cdctl0)
+  {
+    MPRINTF("CDCTL0      : 0x%08lX -> 0x%08lX\n\r", before->cdctl0, after->cdctl0);
+    changes_count++;
+  }
+
+  if (before->cdctl1 != after->cdctl1)
+  {
+    MPRINTF("CDCTL1      : 0x%08lX -> 0x%08lX\n\r", before->cdctl1, after->cdctl1);
+    changes_count++;
+  }
+
+  if (before->cdctl2 != after->cdctl2)
+  {
+    MPRINTF("CDCTL2      : 0x%08lX -> 0x%08lX\n\r", before->cdctl2, after->cdctl2);
+    changes_count++;
+  }
+
+  // Link Pattern Control Registers
+  MPRINTF("\n\r--- Link Pattern Control ---\n\r");
+
+  if (before->lpctl0 != after->lpctl0)
+  {
+    MPRINTF("LPCTL0      : 0x%08lX -> 0x%08lX\n\r", before->lpctl0, after->lpctl0);
+    changes_count++;
+  }
+
+  if (before->lpctl1 != after->lpctl1)
+  {
+    MPRINTF("LPCTL1      : 0x%08lX -> 0x%08lX\n\r", before->lpctl1, after->lpctl1);
+    changes_count++;
+  }
+
+  // XIP Control Registers
+  MPRINTF("\n\r--- XIP Control Registers ---\n\r");
+
+  for (int ch = 0; ch < 2; ch++)
+  {
+    if (before->cmctlch[ch] != after->cmctlch[ch])
+    {
+      MPRINTF("CMCTLCH[%d]  : 0x%08lX -> 0x%08lX\n\r", ch, before->cmctlch[ch], after->cmctlch[ch]);
+      changes_count++;
+    }
+  }
+
+  MPRINTF("\n\r--- Summary ---\n\r");
+  MPRINTF("Total register changes detected: %lu\n\r", changes_count);
+
+  if (changes_count == 0)
+  {
+    MPRINTF("No register differences found!\n\r");
+  }
 }

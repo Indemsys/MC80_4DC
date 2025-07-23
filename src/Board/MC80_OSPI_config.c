@@ -68,7 +68,7 @@ static T_mc80_ospi_timing_setting g_OSPI_timing_settings = {
   .sdr_drive_timing            = MC80_OSPI_SDR_DRIVE_TIMING_BEFORE_CK,
   .sdr_sampling_edge           = MC80_OSPI_CK_EDGE_FALLING,
   .sdr_sampling_delay          = MC80_OSPI_SDR_SAMPLING_DELAY_NONE,
-  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_NONE,
+  .ddr_sampling_extension      = MC80_OSPI_DDR_SAMPLING_EXTENSION_1,
 };
 
 // === Erase Commands Configuration ===
@@ -136,10 +136,10 @@ const T_mc80_ospi_xspi_command_set g_OSPI_command_set_table[] = {
    .p_erase_commands     = &g_OSPI_command_set_high_speed_erase_table,  // Empty table (erase only in SPI)
    .read_command         = MX25_OPI_8READ_DTR,                          // Octal DDR Read
    .read_dummy_cycles    = 20,                                          // 20 dummy cycles (critical for 200MHz)
-   .program_command      = MX25_OPI_PP4B_STR,                           // Octal STR Page Program
+   .program_command      = MX25_OPI_PP4B_DTR,                           // Octal STR Page Program
    .program_dummy_cycles = 0,                                           // No dummy cycles for write
-   .write_enable_command = MX25_OPI_WREN_STR,                           // Write Enable
-   .status_command       = MX25_OPI_RDSR_STR,                           // Read Status
+   .write_enable_command = MX25_OPI_WREN_DTR,                           // Write Enable
+   .status_command       = MX25_OPI_RDSR_DTR,                           // Read Status
    .status_dummy_cycles  = 4,                                           // 4 dummy cycles for status in DDR
   }
 };
@@ -185,7 +185,7 @@ const T_mc80_ospi_cfg g_OSPI_cfg = {
 const T_mc80_ospi_api g_mc80_ospi_api = {
   .open           = Mc80_ospi_open,
   .close          = Mc80_ospi_close,
-  .write          = Mc80_ospi_write,
+  .write          = Mc80_ospi_memory_mapped_write,
   .erase          = Mc80_ospi_erase,
   .statusGet      = Mc80_ospi_status_get,
   .spiProtocolSet = Mc80_ospi_spi_protocol_set,

@@ -439,7 +439,7 @@ int _lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, cons
   }
 
   // Write data using OSPI driver with correct base address
-  err = Mc80_ospi_write(p_ctrl, (uint8_t *)buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
+  err = Mc80_ospi_memory_mapped_write(p_ctrl, (uint8_t *)buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
 
   if (err != FSP_SUCCESS)
   {
