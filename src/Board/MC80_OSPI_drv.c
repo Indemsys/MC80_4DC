@@ -21,8 +21,7 @@
 // Debug loop types enumeration
 typedef enum
 {
-  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_READY_WAIT = 0,       // Transaction ready wait in direct transfer
-  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_COMPLETION_WAIT,      // Transaction completion wait in direct transfer
+  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_COMPLETION_WAIT = 0,  // Transaction completion wait in direct transfer
   OSPI_DEBUG_LOOP_AUTO_CALIBRATION_WAIT,                // Auto-calibration completion wait
   OSPI_DEBUG_LOOP_XIP_ACCESS_COMPLETION_WAIT,           // Access completion wait in XIP function
   OSPI_DEBUG_LOOP_XIP_ENTER_READ_WAIT,                  // XIP enter read completion wait
@@ -59,7 +58,6 @@ static T_ospi_debug_structure g_ospi_debug = {
   .total_measurements  = 0,
   .loops               = { { 0 } },    // Initialize all loop data to zero
   .loop_names          = {
-   "DIRECT_TRANSFER_READY_WAIT",
    "DIRECT_TRANSFER_COMPLETION_WAIT",
    "AUTO_CALIBRATION_WAIT",
    "XIP_ACCESS_COMPLETION_WAIT",
@@ -1796,15 +1794,6 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
 
   // Configure manual command control: cancel ongoing transactions, select target channel
   p_reg->CDCTL0 = ((((uint32_t)channel) << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
-
-  // Wait for any ongoing transaction to complete before starting new one
-  OSPI_DEBUG_LOOP_START(OSPI_DEBUG_LOOP_DIRECT_TRANSFER_READY_WAIT);
-  while (p_reg->CDCTL0_b.TRREQ != 0)
-  {
-    OSPI_DEBUG_LOOP_ITERATION();
-    __NOP();  // Breakpoint for transaction ready wait
-  }
-  OSPI_DEBUG_LOOP_END(OSPI_DEBUG_LOOP_DIRECT_TRANSFER_READY_WAIT);
 
   // Load the transaction configuration and address into command buffer
   p_reg->CDBUF[0].CDT = cdtbuf0;              // Command Data Transaction register
