@@ -9,95 +9,100 @@
 /*-----------------------------------------------------------------------------------------------------
   OSPI Wait Loop Debug System - can be disabled with MC80_OSPI_DEBUG_WAIT_LOOPS = 0
 -----------------------------------------------------------------------------------------------------*/
-#define MC80_OSPI_DEBUG_WAIT_LOOPS                       (1)  // Set to 0 to disable all debug measurements
+#define MC80_OSPI_DEBUG_WAIT_LOOPS (1)  // Set to 0 to disable all debug measurements
 
 #if MC80_OSPI_DEBUG_WAIT_LOOPS
 
-// Maximum precision timing using DWT (Data Watchpoint and Trace) cycle counter
-#define OSPI_DEBUG_TIMER_START()                         uint32_t start_cycles = DWT->CYCCNT
-#define OSPI_DEBUG_TIMER_STOP()                          uint32_t end_cycles = DWT->CYCCNT
-#define OSPI_DEBUG_CALC_DURATION(start, end)             ((end) >= (start) ? ((end) - (start)) : (UINT32_MAX - (start) + (end) + 1))
+  // Maximum precision timing using DWT (Data Watchpoint and Trace) cycle counter
+  #define OSPI_DEBUG_TIMER_START()             uint32_t start_cycles = DWT->CYCCNT
+  #define OSPI_DEBUG_TIMER_STOP()              uint32_t end_cycles = DWT->CYCCNT
+  #define OSPI_DEBUG_CALC_DURATION(start, end) ((end) >= (start) ? ((end) - (start)) : (UINT32_MAX - (start) + (end) + 1))
 
 // Debug loop types enumeration
 typedef enum
 {
-  OSPI_DEBUG_LOOP_ERASE_MEMORY_ACCESS_WAIT = 0,    // Memory access wait in erase function
-  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_READY_WAIT,      // Transaction ready wait in direct transfer
-  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_COMPLETION_WAIT, // Transaction completion wait in direct transfer
-  OSPI_DEBUG_LOOP_AUTO_CALIBRATION_WAIT,           // Auto-calibration completion wait
-  OSPI_DEBUG_LOOP_XIP_ACCESS_COMPLETION_WAIT,      // Access completion wait in XIP function
-  OSPI_DEBUG_LOOP_XIP_ENTER_READ_WAIT,             // XIP enter read completion wait
-  OSPI_DEBUG_LOOP_XIP_EXIT_READ_WAIT,              // XIP exit read completion wait
-  OSPI_DEBUG_LOOP_COUNT                            // Total number of debug loop types
+  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_READY_WAIT = 0,       // Transaction ready wait in direct transfer
+  OSPI_DEBUG_LOOP_DIRECT_TRANSFER_COMPLETION_WAIT,      // Transaction completion wait in direct transfer
+  OSPI_DEBUG_LOOP_AUTO_CALIBRATION_WAIT,                // Auto-calibration completion wait
+  OSPI_DEBUG_LOOP_XIP_ACCESS_COMPLETION_WAIT,           // Access completion wait in XIP function
+  OSPI_DEBUG_LOOP_XIP_ENTER_READ_WAIT,                  // XIP enter read completion wait
+  OSPI_DEBUG_LOOP_XIP_EXIT_READ_WAIT,                   // XIP exit read completion wait
+  OSPI_DEBUG_LOOP_COUNT                                 // Total number of debug loop types
 } T_ospi_debug_loop_type;
 
 // Individual loop measurement data
 typedef struct
 {
-  uint32_t total_calls;        // Total number of times this loop was executed
-  uint32_t total_cycles;       // Total CPU cycles spent in this loop
-  uint32_t min_cycles;         // Minimum cycles for single loop execution
-  uint32_t max_cycles;         // Maximum cycles for single loop execution
-  uint32_t last_cycles;        // Cycles from most recent loop execution
-  uint32_t avg_cycles;         // Average cycles per loop execution (calculated)
-  uint32_t last_iterations;    // Number of iterations in most recent loop execution
+  uint32_t total_calls;      // Total number of times this loop was executed
+  uint32_t total_cycles;     // Total CPU cycles spent in this loop
+  uint32_t min_cycles;       // Minimum cycles for single loop execution
+  uint32_t max_cycles;       // Maximum cycles for single loop execution
+  uint32_t last_cycles;      // Cycles from most recent loop execution
+  uint32_t avg_cycles;       // Average cycles per loop execution (calculated)
+  uint32_t last_iterations;  // Number of iterations in most recent loop execution
 } T_ospi_debug_loop_data;
 
 // Complete debug structure - visible in debugger live view
 typedef struct
 {
-  uint32_t                system_clock_hz;                            // System clock frequency for time calculations
-  uint32_t                measurement_enabled;                        // 1 if measurements active, 0 if disabled
-  uint32_t                total_measurements;                         // Total number of loop measurements taken
-  T_ospi_debug_loop_data  loops[OSPI_DEBUG_LOOP_COUNT];              // Individual loop statistics
-  const char             *loop_names[OSPI_DEBUG_LOOP_COUNT];         // Human-readable loop names for debugger
+  uint32_t               system_clock_hz;                    // System clock frequency for time calculations
+  uint32_t               measurement_enabled;                // 1 if measurements active, 0 if disabled
+  uint32_t               total_measurements;                 // Total number of loop measurements taken
+  T_ospi_debug_loop_data loops[OSPI_DEBUG_LOOP_COUNT];       // Individual loop statistics
+  const char            *loop_names[OSPI_DEBUG_LOOP_COUNT];  // Human-readable loop names for debugger
 } T_ospi_debug_structure;
 
 // Global debug structure - can be observed in debugger live view
 static T_ospi_debug_structure g_ospi_debug = {
-  .system_clock_hz = 240000000UL,  // 240 MHz system clock
+  .system_clock_hz     = 240000000UL,  // 240 MHz system clock
   .measurement_enabled = 1,
-  .total_measurements = 0,
-  .loops = {{0}},  // Initialize all loop data to zero
-  .loop_names = {
-    "ERASE_MEMORY_ACCESS_WAIT",
-    "DIRECT_TRANSFER_READY_WAIT",
-    "DIRECT_TRANSFER_COMPLETION_WAIT",
-    "AUTO_CALIBRATION_WAIT",
-    "XIP_ACCESS_COMPLETION_WAIT",
-    "XIP_ENTER_READ_WAIT",
-    "XIP_EXIT_READ_WAIT"
-  }
+  .total_measurements  = 0,
+  .loops               = { { 0 } },    // Initialize all loop data to zero
+  .loop_names          = {
+   "DIRECT_TRANSFER_READY_WAIT",
+   "DIRECT_TRANSFER_COMPLETION_WAIT",
+   "AUTO_CALIBRATION_WAIT",
+   "XIP_ACCESS_COMPLETION_WAIT",
+   "XIP_ENTER_READ_WAIT",
+   "XIP_EXIT_READ_WAIT" }
 };
 
-// Macros for loop measurement - automatically disabled if MC80_OSPI_DEBUG_WAIT_LOOPS = 0
-#define OSPI_DEBUG_LOOP_START(loop_type)                do { \
-  if (g_ospi_debug.measurement_enabled) { \
-    OSPI_DEBUG_TIMER_START(); \
-    uint32_t loop_iterations = 0;
+  // Macros for loop measurement - automatically disabled if MC80_OSPI_DEBUG_WAIT_LOOPS = 0
+  #define OSPI_DEBUG_LOOP_START(loop_type)  \
+    do                                      \
+    {                                       \
+      if (g_ospi_debug.measurement_enabled) \
+      {                                     \
+        OSPI_DEBUG_TIMER_START();           \
+        uint32_t loop_iterations = 0;
 
-#define OSPI_DEBUG_LOOP_ITERATION()                     loop_iterations++
+  #define OSPI_DEBUG_LOOP_ITERATION() loop_iterations++
 
-#define OSPI_DEBUG_LOOP_END(loop_type)                  \
-    OSPI_DEBUG_TIMER_STOP(); \
-    uint32_t duration = OSPI_DEBUG_CALC_DURATION(start_cycles, end_cycles); \
-    T_ospi_debug_loop_data *p_loop = &g_ospi_debug.loops[loop_type]; \
-    p_loop->total_calls++; \
-    p_loop->total_cycles += duration; \
-    p_loop->last_cycles = duration; \
-    p_loop->last_iterations = loop_iterations; \
+  #define OSPI_DEBUG_LOOP_END(loop_type)                                                          \
+    OSPI_DEBUG_TIMER_STOP();                                                                      \
+    uint32_t                duration = OSPI_DEBUG_CALC_DURATION(start_cycles, end_cycles);        \
+    T_ospi_debug_loop_data *p_loop   = &g_ospi_debug.loops[loop_type];                            \
+    p_loop->total_calls++;                                                                        \
+    p_loop->total_cycles += duration;                                                             \
+    p_loop->last_cycles     = duration;                                                           \
+    p_loop->last_iterations = loop_iterations;                                                    \
     if (p_loop->total_calls == 1 || duration < p_loop->min_cycles) p_loop->min_cycles = duration; \
-    if (duration > p_loop->max_cycles) p_loop->max_cycles = duration; \
-    p_loop->avg_cycles = p_loop->total_cycles / p_loop->total_calls; \
-    g_ospi_debug.total_measurements++; \
-  } \
-} while(0)
+    if (duration > p_loop->max_cycles) p_loop->max_cycles = duration;                             \
+    p_loop->avg_cycles = p_loop->total_cycles / p_loop->total_calls;                              \
+    g_ospi_debug.total_measurements++;                                                            \
+    }                                                                                             \
+    }                                                                                             \
+    while (0)
 
 #else
-// Debug disabled - all macros become empty
-#define OSPI_DEBUG_LOOP_START(loop_type)                do {
-#define OSPI_DEBUG_LOOP_ITERATION()                     /* empty */
-#define OSPI_DEBUG_LOOP_END(loop_type)                  } while(0)
+  // Debug disabled - all macros become empty
+  #define OSPI_DEBUG_LOOP_START(loop_type) \
+    do                                     \
+    {
+  #define OSPI_DEBUG_LOOP_ITERATION() /* empty */
+  #define OSPI_DEBUG_LOOP_END(loop_type) \
+    }                                    \
+    while (0)
 #endif
 
 /*-----------------------------------------------------------------------------------------------------
@@ -932,7 +937,21 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t const *const p_src, uint8_t *const p_dest, uint32_t byte_count)
 {
-  fsp_err_t err = FSP_SUCCESS;
+  // Variable declarations
+  fsp_err_t                       err = FSP_SUCCESS;
+  uint32_t                        page_size;
+  uint32_t                        page_offset;
+  R_XSPI0_Type                   *p_reg;
+  T_mc80_ospi_extended_cfg const *p_cfg_extend;
+  transfer_instance_t const      *p_transfer;
+  dmac_extended_cfg_t const      *p_dmac_extend;
+  R_DMAC0_Type                   *p_dma_reg;
+  uint32_t                        bytes_remaining;
+  uint32_t                        offset;
+  uint32_t                        current_block_size;
+  transfer_properties_t           transfer_properties;
+  uint8_t                         combo_bytes;
+  fsp_err_t                       status_err;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -946,8 +965,8 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     }
 
     // Check that space remaining in page is sufficient for requested write size
-    uint32_t page_size   = p_ctrl->p_cfg->page_size_bytes;
-    uint32_t page_offset = (uint32_t)p_dest & (page_size - 1);
+    page_size   = p_ctrl->p_cfg->page_size_bytes;
+    page_offset = (uint32_t)p_dest & (page_size - 1);
     if ((page_size - page_offset) < byte_count)
     {
       return FSP_ERR_INVALID_SIZE;
@@ -970,46 +989,23 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 #endif
   }
 
-  R_XSPI0_Type *const p_reg                    = p_ctrl->p_reg;
-
-  // Setup DMA transfer configuration
-  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
-  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
+  // Initialize variables
+  p_reg            = p_ctrl->p_reg;
+  p_cfg_extend     = p_ctrl->p_cfg->p_extend;
+  p_transfer       = p_cfg_extend->p_lower_lvl_transfer;
 
   // Enable Octa-SPI DMA Bufferable Write
-  dmac_extended_cfg_t const *p_dmac_extend     = p_transfer->p_cfg->p_extend;
-  R_DMAC0_Type              *p_dma_reg         = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
-  p_dma_reg->DMBWR                             = R_DMAC0_DMBWR_BWE_Msk;
+  p_dmac_extend    = p_transfer->p_cfg->p_extend;
+  p_dma_reg        = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
+  p_dma_reg->DMBWR = R_DMAC0_DMBWR_BWE_Msk;
 
   // Process data in 64-byte blocks for optimal performance
-  uint32_t bytes_remaining                     = byte_count;
-  uint32_t offset                              = 0;
+  bytes_remaining  = byte_count;
+  offset           = 0;
 
   while (bytes_remaining > 0)
   {
-    // Wait for device ready status before starting new block write operation
-    // Option 1: Use hardware periodic polling (more efficient)
-    if (_Mc80_ospi_periodic_status_start(p_ctrl) == FSP_SUCCESS)
-    {
-      // Wait for periodic polling completion using hardware automation
-      err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
-      _Mc80_ospi_periodic_status_stop(p_ctrl);
-      ITM_EVENT8(3, 1);
-
-      if (FSP_SUCCESS != err)
-      {
-        break;  // Timeout or error in periodic polling
-      }
-    }
-    else
-    {
-      // Failed to start periodic status polling, exit with error
-      err = FSP_ERR_WRITE_FAILED;
-      break;
-    }
-
     // Determine current block size (64 bytes or remaining bytes, whichever is smaller)
-    uint32_t current_block_size;
     if (bytes_remaining >= MC80_OSPI_BLOCK_WRITE_SIZE)
     {
       current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
@@ -1058,8 +1054,8 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     }
 
     // Verify current block transfer completion status using infoGet
-    transfer_properties_t transfer_properties = { 0U };
-    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+    transfer_properties.transfer_length_remaining = 0U;  // Reset structure
+    err                                           = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
     if (FSP_SUCCESS != err)
     {
       break;
@@ -1072,19 +1068,41 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       break;
     }
 
+    // Handle combination write function for current block if needed
+    if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
+    {
+      combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
+      if (current_block_size < combo_bytes)
+      {
+        p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
+      }
+    }
+
+    // Wait for device ready status after completing block write operation
+    // Use hardware periodic polling to check write completion
+    if (_Mc80_ospi_periodic_status_start(p_ctrl) == FSP_SUCCESS)
+    {
+      // Wait for periodic polling completion using hardware automation
+      status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+      _Mc80_ospi_periodic_status_stop(p_ctrl);
+      ITM_EVENT8(3, 1);
+
+      if (FSP_SUCCESS != status_err)
+      {
+        err = status_err;  // Timeout or error in periodic polling
+        break;
+      }
+    }
+    else
+    {
+      // Failed to start periodic status polling, exit with error
+      err = FSP_ERR_WRITE_FAILED;
+      break;
+    }
+
     // Move to next block
     offset += current_block_size;
     bytes_remaining -= current_block_size;
-  }
-
-  // Handle combination write function for final block if needed
-  if (MC80_OSPI_COMBINATION_FUNCTION_DISABLE != MC80_OSPI_CFG_COMBINATION_FUNCTION)
-  {
-    uint8_t combo_bytes = (uint8_t)(2U * ((uint8_t)MC80_OSPI_CFG_COMBINATION_FUNCTION + 1U));
-    if ((byte_count % MC80_OSPI_BLOCK_WRITE_SIZE) < combo_bytes && (byte_count % MC80_OSPI_BLOCK_WRITE_SIZE) > 0)
-    {
-      p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_PUSH_COMBINATION_WRITE_MASK;
-    }
   }
 
   // Disable Octa-SPI DMA Bufferable Write
@@ -1123,7 +1141,6 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     }
   }
 
-  T_mc80_ospi_cfg const *p_cfg         = p_ctrl->p_cfg;
   uint16_t               erase_command = 0;
   uint32_t               chip_address_base;
   uint32_t               chip_address;
@@ -1137,14 +1154,9 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   {
     chip_address_base = MC80_OSPI_DEVICE_0_START_ADDRESS;
   }
-  chip_address                                  = (uint32_t)p_device_address - chip_address_base;
+  chip_address                                       = (uint32_t)p_device_address - chip_address_base;
 
-  T_mc80_ospi_xspi_command_set const *p_cmd_set = p_ctrl->p_cmd_set;
-
-  if (true == _Mc80_ospi_status_sub(p_ctrl, p_cfg->write_status_bit))
-  {
-    return FSP_ERR_DEVICE_BUSY;
-  }
+  T_mc80_ospi_xspi_command_set const *p_cmd_set      = p_ctrl->p_cmd_set;
 
   // Select the appropriate erase command from the command set
   T_mc80_ospi_erase_command const *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
@@ -1192,17 +1204,27 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
 
   _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
-  // If prefetch is enabled, make sure the banks aren't being used and flush the prefetch caches after an erase
+  // Wait for erase operation completion using hardware periodic polling
+  fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl);
+  if (FSP_SUCCESS != status_err)
+  {
+    return FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
+  }
+
+  // Wait for periodic polling completion using hardware automation
+  status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+  _Mc80_ospi_periodic_status_stop(p_ctrl);
+  ITM_EVENT8(3, 1);
+
+  if (FSP_SUCCESS != status_err)
+  {
+    return status_err;  // Timeout or error in periodic polling
+  }
+
+  // If prefetch is enabled, flush the prefetch caches after an erase
   if (MC80_OSPI_CFG_PREFETCH_FUNCTION)
   {
     R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
-    OSPI_DEBUG_LOOP_START(OSPI_DEBUG_LOOP_ERASE_MEMORY_ACCESS_WAIT);
-    while ((p_reg->COMSTT & MC80_OSPI_PRV_COMSTT_MEMACCCH_MASK) != 0)
-    {
-      OSPI_DEBUG_LOOP_ITERATION();
-      __NOP();  // Breakpoint for memory access wait
-    }
-    OSPI_DEBUG_LOOP_END(OSPI_DEBUG_LOOP_ERASE_MEMORY_ACCESS_WAIT);
     p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK;
   }
 
@@ -1804,7 +1826,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   while (p_reg->CDCTL0_b.TRREQ != 0)
   {
     OSPI_DEBUG_LOOP_ITERATION();
-    __NOP();                  // Breakpoint for transaction completion wait
+    __NOP();  // Breakpoint for transaction completion wait
   }
   OSPI_DEBUG_LOOP_END(OSPI_DEBUG_LOOP_DIRECT_TRANSFER_COMPLETION_WAIT);
 
@@ -2866,15 +2888,15 @@ fsp_err_t Mc80_ospi_cmdcmp_wait_for_completion(ULONG timeout_ticks)
 void Mc80_ospi_debug_reset_statistics(void)
 {
   // Preserve system settings but clear all measurement data
-  uint32_t saved_clock = g_ospi_debug.system_clock_hz;
-  uint32_t saved_enabled = g_ospi_debug.measurement_enabled;
-  const char **saved_names = (const char **)g_ospi_debug.loop_names;
+  uint32_t     saved_clock   = g_ospi_debug.system_clock_hz;
+  uint32_t     saved_enabled = g_ospi_debug.measurement_enabled;
+  const char **saved_names   = (const char **)g_ospi_debug.loop_names;
 
   // Clear all statistics
   memset(&g_ospi_debug, 0, sizeof(g_ospi_debug));
 
   // Restore settings
-  g_ospi_debug.system_clock_hz = saved_clock;
+  g_ospi_debug.system_clock_hz     = saved_clock;
   g_ospi_debug.measurement_enabled = saved_enabled;
   memcpy((void *)g_ospi_debug.loop_names, saved_names, sizeof(g_ospi_debug.loop_names));
 
@@ -2895,7 +2917,7 @@ void Mc80_ospi_debug_reset_statistics(void)
 -----------------------------------------------------------------------------------------------------*/
 bool Mc80_ospi_debug_enable_measurements(bool enable)
 {
-  bool previous_state = (g_ospi_debug.measurement_enabled != 0);
+  bool previous_state              = (g_ospi_debug.measurement_enabled != 0);
   g_ospi_debug.measurement_enabled = enable ? 1 : 0;
   return previous_state;
 }
@@ -2935,4 +2957,4 @@ float Mc80_ospi_debug_cycles_to_microseconds(uint32_t cycles)
   return ((float)cycles * 1000000.0f) / (float)g_ospi_debug.system_clock_hz;
 }
 
-#endif // MC80_OSPI_DEBUG_WAIT_LOOPS
+#endif  // MC80_OSPI_DEBUG_WAIT_LOOPS

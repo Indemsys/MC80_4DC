@@ -10,22 +10,22 @@
 #include "App.h"
 
 // Test data sizes
-#define OSPI_TEST_PATTERN_SIZE           256
-#define OSPI_TEST_SECTOR_SIZE            4096
+#define OSPI_TEST_PATTERN_SIZE        256
+#define OSPI_TEST_SECTOR_SIZE         4096
 
 // Read operation sizes
-#define OSPI_DIRECT_READ_SIZE            4096   // Size for direct read test
-#define OSPI_MEMORY_MAPPED_READ_SIZE     4096   // Size for memory-mapped read test
-#define OSPI_CONTINUOUS_READ_SIZE        128    // Size for continuous read test
-#define OSPI_JEDEC_ID_SIZE               3      // JEDEC ID read size
+#define OSPI_DIRECT_READ_SIZE         4096  // Size for direct read test
+#define OSPI_MEMORY_MAPPED_READ_SIZE  4096  // Size for memory-mapped read test
+#define OSPI_CONTINUOUS_READ_SIZE     128   // Size for continuous read test
+#define OSPI_JEDEC_ID_SIZE            3     // JEDEC ID read size
 
 // Write operation sizes
-#define OSPI_MEMORY_MAPPED_WRITE_SIZE    256    // Size for memory-mapped write test
-#define OSPI_SECTOR_WRITE_SIZE           256    // Size for sector test write chunks
-#define OSPI_PREAMBLE_PATTERN_SIZE       256    // Size for preamble pattern write
+#define OSPI_MEMORY_MAPPED_WRITE_SIZE 256  // Size for memory-mapped write test
+#define OSPI_SECTOR_WRITE_SIZE        256  // Size for sector test write chunks
+#define OSPI_PREAMBLE_PATTERN_SIZE    256  // Size for preamble pattern write
 
 // Display sizes
-#define OSPI_DISPLAY_PREVIEW_SIZE        64     // Size for data preview display
+#define OSPI_DISPLAY_PREVIEW_SIZE     64  // Size for data preview display
 
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
@@ -39,8 +39,8 @@ void OSPI_test_memory_mapped_read(uint8_t keycode);
 void OSPI_test_8d_continuous_read(uint8_t keycode);
 
 // Internal helper functions
-static fsp_err_t _Ospi_ensure_driver_open(void);
-static void      _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after);
+static fsp_err_t            _Ospi_ensure_driver_open(void);
+static void                 _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after);
 static T_mc80_ospi_protocol _Ospi_select_protocol(void);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
@@ -259,7 +259,7 @@ void OSPI_test_read(uint8_t keycode)
   T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
 
   // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  fsp_err_t init_err            = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
@@ -349,7 +349,7 @@ void OSPI_test_memory_mapped_write(uint8_t keycode)
   T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
 
   // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  fsp_err_t init_err            = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
@@ -537,7 +537,7 @@ void OSPI_test_erase(uint8_t keycode)
   T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
 
   // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  fsp_err_t init_err            = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
@@ -586,97 +586,60 @@ void OSPI_test_erase(uint8_t keycode)
     return;
   }
 
-  // Check initial flash status
-  T_mc80_ospi_status status;
-  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-  if (err == FSP_SUCCESS && status.write_in_progress)
-  {
-    MPRINTF("Flash is busy, waiting...\n\r");
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
-  }
-
   MPRINTF("Erasing 4KB sector at flash offset 0x00000000...\n\r");
-  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
+  // Note: Mc80_ospi_erase() includes built-in device ready check, no need to wait here
+  fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
 
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Erase command: SUCCESS\n\r");
 
-    MPRINTF("Waiting for erase completion...\n\r");
-    uint32_t wait_count = 0;
-    do
-    {
-      R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-      wait_count += 10;
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
+    // Read back to verify erase
+    MPRINTF("Reading back erased data for verification...\n\r");
 
-      if (wait_count % 100 == 0)
+    // Read data using memory-mapped read
+    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
+
+    if (err == FSP_SUCCESS)
+    {
+      MPRINTF("Read back: SUCCESS\n\r");
+
+      // Check if all bytes are 0xFF (erased state)
+      bool erased = true;
+      for (int i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
       {
-        MPRINTF("Waited %u ms...\n\r", wait_count);
+        if (read_buffer[i] != 0xFF)
+        {
+          erased = false;
+          break;
+        }
       }
 
-      if (wait_count > 5000)  // 5 second timeout
+      if (erased)
       {
-        MPRINTF("Erase timeout!\n\r");
-        break;
-      }
-    } while (status.write_in_progress);
-
-    if (!status.write_in_progress)
-    {
-      MPRINTF("Erase completed in %u ms\n\r", wait_count);
-
-      // Read back to verify erase
-      MPRINTF("Reading back erased data for verification...\n\r");
-
-      // Read data using memory-mapped read
-      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-      if (err == FSP_SUCCESS)
-      {
-        MPRINTF("Read back: SUCCESS\n\r");
-
-        // Check if all bytes are 0xFF (erased state)
-        bool erased = true;
-        for (int i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
-        {
-          if (read_buffer[i] != 0xFF)
-          {
-            erased = false;
-            break;
-          }
-        }
-
-        if (erased)
-        {
-          MPRINTF("Erase verification: PASS (all bytes are 0xFF)\n\r");
-        }
-        else
-        {
-          MPRINTF("Erase verification: FAIL (some bytes not 0xFF)\n\r");
-          MPRINTF("First 32 bytes:\n\r");
-          for (int i = 0; i < 32; i++)
-          {
-            if (i % 16 == 0)
-            {
-              MPRINTF("%04X: ", i);
-            }
-            MPRINTF("%02X ", read_buffer[i]);
-            if (i % 16 == 15)
-            {
-              MPRINTF("\n\r");
-            }
-          }
-        }
+        MPRINTF("Erase verification: PASS (all bytes are 0xFF)\n\r");
       }
       else
       {
-        MPRINTF("Read back: FAILED (0x%X)\n\r", err);
+        MPRINTF("Erase verification: FAIL (some bytes not 0xFF)\n\r");
+        MPRINTF("First 32 bytes:\n\r");
+        for (int i = 0; i < 32; i++)
+        {
+          if (i % 16 == 0)
+          {
+            MPRINTF("%04X: ", i);
+          }
+          MPRINTF("%02X ", read_buffer[i]);
+          if (i % 16 == 15)
+          {
+            MPRINTF("\n\r");
+          }
+        }
       }
+    }
+    else
+    {
+      MPRINTF("Read back: FAILED (0x%X)\n\r", err);
     }
   }
   else
@@ -709,7 +672,7 @@ void OSPI_test_sector(uint8_t keycode)
   T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
 
   // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  fsp_err_t init_err            = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
@@ -780,17 +743,6 @@ void OSPI_test_sector(uint8_t keycode)
     goto cleanup;
   }
 
-  // Wait for erase
-  wait_count = 0;
-  do
-  {
-    R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-    wait_count += 10;
-    Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-  } while (status.write_in_progress && wait_count < 10000);
-
-  MPRINTF("Sector erased in %u ms\n\r", wait_count);
-
   // Write and verify each chunk
   errors = 0;
   for (int chunk = 0; chunk < (OSPI_TEST_SECTOR_SIZE / OSPI_SECTOR_WRITE_SIZE); chunk++)
@@ -811,13 +763,6 @@ void OSPI_test_sector(uint8_t keycode)
       errors++;
       continue;
     }
-
-    // Wait for write completion
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
 
     // Read back chunk
     memset(chunk_read, 0, OSPI_SECTOR_WRITE_SIZE);
@@ -1597,7 +1542,7 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
   T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
 
   // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  fsp_err_t init_err            = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
