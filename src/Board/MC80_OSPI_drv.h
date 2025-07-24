@@ -576,4 +576,20 @@ fsp_err_t Mc80_ospi_cmdcmp_wait_for_completion(ULONG timeout_ticks);
 #define OSPI_CMDCMP_EVENT_ERROR           (0x00000008UL)
 #define OSPI_CMDCMP_EVENT_ALL_EVENTS      (OSPI_CMDCMP_EVENT_COMPLETE | OSPI_CMDCMP_EVENT_ERROR)
 
+/*-----------------------------------------------------------------------------------------------------
+  OSPI Wait Loop Debug System - Function declarations (only available when debugging enabled)
+-----------------------------------------------------------------------------------------------------*/
+#if defined(MC80_OSPI_DEBUG_WAIT_LOOPS) && (MC80_OSPI_DEBUG_WAIT_LOOPS == 1)
+
+// Forward declaration of debug structure type
+typedef struct T_ospi_debug_structure T_ospi_debug_structure;
+
+// Debug function declarations
+void                     Mc80_ospi_debug_reset_statistics(void);
+bool                     Mc80_ospi_debug_enable_measurements(bool enable);
+T_ospi_debug_structure  *Mc80_ospi_debug_get_statistics(void);
+float                    Mc80_ospi_debug_cycles_to_microseconds(uint32_t cycles);
+
+#endif // MC80_OSPI_DEBUG_WAIT_LOOPS
+
 #endif  // MC80_OSPI_DRV_H

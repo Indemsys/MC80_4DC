@@ -55,7 +55,7 @@
         <EnforceMemoryConfiguration>0</EnforceMemoryConfiguration>
     </ArmDriver>
     <DebugChecksum>
-        <Checksum>834951277</Checksum>
+        <Checksum>4002922160</Checksum>
     </DebugChecksum>
     <InterruptStripe>
         <Title0>XSPI_CMP</Title0>
@@ -208,7 +208,7 @@
         <mode>0</mode>
     </DisassembleMode>
     <Breakpoints2>
-        <Bp0>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\Board\MC80_OSPI_drv.c}.1016.3" 0 0 1 "" 0 "" 0</Bp0>
+        <Bp0>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\VT100\Monitor_OSPI.c}.856.3" 0 0 1 "" 0 "" 0</Bp0>
         <Count>1</Count>
     </Breakpoints2>
     <DriverProfiling>
