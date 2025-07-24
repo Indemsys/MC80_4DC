@@ -187,13 +187,15 @@ static void _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_osp
 
   // Display menu options
   MPRINTF("\n\r===== Operations Menu =====\n\r");
-  MPRINTF("  <1> - Configure settings\n\r");
-  MPRINTF("  <2> - Read operation (memory-mapped)\n\r");
-  MPRINTF("  <3> - Direct read operation\n\r");
-  MPRINTF("  <4> - Fast read benchmark\n\r");
-  MPRINTF("  <5> - Write operation\n\r");
-  MPRINTF("  <6> - Erase operation\n\r");
-  MPRINTF("  <7> - Switch protocol\n\r");
+  MPRINTF("  <1> - Configure address\n\r");
+  MPRINTF("  <2> - Configure size\n\r");
+  MPRINTF("  <3> - Configure pattern\n\r");
+  MPRINTF("  <4> - Read operation (memory-mapped)\n\r");
+  MPRINTF("  <5> - Direct read operation\n\r");
+  MPRINTF("  <6> - Fast read benchmark\n\r");
+  MPRINTF("  <7> - Write operation\n\r");
+  MPRINTF("  <8> - Erase operation\n\r");
+  MPRINTF("  <9> - Switch protocol\n\r");
   MPRINTF("  <R> - Return to main menu\n\r");
   MPRINTF("Choice: ");
 }
@@ -344,8 +346,12 @@ static T_mc80_ospi_protocol _Ospi_select_protocol(void)
   MPRINTF("  <ESC> - Cancel\n\r");
   MPRINTF("Choice: ");
 
-  uint8_t key;
-  WAIT_CHAR(&key, ms_to_ticks(30000));
+  uint8_t key = 0;
+  if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using Standard SPI (1S-1S-1S)\n\r");
+    return MC80_OSPI_PROTOCOL_1S_1S_1S;
+  }
 
   switch (key)
   {
@@ -468,69 +474,138 @@ void OSPI_test_custom_operations(uint8_t keycode)
   {
     _Ospi_display_custom_menu(&settings, &results);
 
-    uint8_t operation;
-    WAIT_CHAR(&operation, ms_to_ticks(30000));
+    uint8_t operation = 0;
+    if (WAIT_CHAR(&operation, ms_to_ticks(30000)) != RES_OK)
+    {
+      continue; // Skip processing on timeout
+    }
     MPRINTF("%c\n\r", operation);
 
     switch (operation)
     {
-      case '1': // Configure settings
+      case '1': // Configure address
       {
-        MPRINTF("\n\r===== Configure Settings =====\n\r");
-
-        // Get new address
+        MPRINTF("\n\r===== Configure Address =====\n\r");
         MPRINTF("Current address: 0x%08X\n\r", settings.address);
-        MPRINTF("Enter new address or press ENTER to keep current: ");
+        MPRINTF("Press ENTER to edit address, ESC to keep current: ");
 
-        uint8_t first_key;
-        WAIT_CHAR(&first_key, ms_to_ticks(30000));
-
-        if (first_key == '\r' || first_key == '\n')
+        uint8_t key = 0;
+        if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
         {
-          MPRINTF("ENTER - keeping current address\n\r");
+          MPRINTF("TIMEOUT - keeping current address\n\r");
         }
-        else
+        else if (key == '\r' || key == '\n')
         {
-          // Put the first character back and get full address
-          MPRINTF("0x%c", first_key);
+          MPRINTF("ENTER - entering address edit mode\n\r");
           uint32_t new_address = _Ospi_get_address_input();
           if (new_address <= OSPI_MAX_FLASH_ADDRESS)
           {
             settings.address = new_address;
+            MPRINTF("Address updated successfully\n\r");
           }
           else
           {
             MPRINTF("ERROR: Address exceeds flash size, keeping current\n\r");
           }
         }
-
-        // Get new size
-        MPRINTF("Current size: %u bytes\n\r", settings.size);
-        uint32_t new_size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
-        if (new_size > 0 && (settings.address + new_size - 1) <= OSPI_MAX_FLASH_ADDRESS)
+        else if (key == VT100_ESC)
         {
-          settings.size = new_size;
+          MPRINTF("ESC - keeping current address\n\r");
         }
         else
         {
-          MPRINTF("ERROR: Invalid size or address range, keeping current\n\r");
+          MPRINTF("Invalid key - keeping current address\n\r");
         }
 
-        // Get new pattern
-        settings.pattern_type = _Ospi_get_pattern_type();
-        if (settings.pattern_type == OSPI_PATTERN_CONSTANT || settings.pattern_type == OSPI_PATTERN_INCREMENT)
-        {
-          settings.pattern_value = _Ospi_get_pattern_value();
-        }
-
-        MPRINTF("Settings updated successfully\n\r");
         MPRINTF("Press any key to continue...\n\r");
         uint8_t dummy_key;
         WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
       }
 
-      case '2': // Read operation (memory-mapped)
+      case '2': // Configure size
+      {
+        MPRINTF("\n\r===== Configure Size =====\n\r");
+        MPRINTF("Current size: %u bytes\n\r", settings.size);
+        MPRINTF("Press ENTER to edit size, ESC to keep current: ");
+
+        uint8_t key = 0;
+        if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+        {
+          MPRINTF("TIMEOUT - keeping current size\n\r");
+        }
+        else if (key == '\r' || key == '\n')
+        {
+          MPRINTF("ENTER - entering size edit mode\n\r");
+          uint32_t new_size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
+          if (new_size > 0 && (settings.address + new_size - 1) <= OSPI_MAX_FLASH_ADDRESS)
+          {
+            settings.size = new_size;
+            MPRINTF("Size updated successfully\n\r");
+          }
+          else
+          {
+            MPRINTF("ERROR: Invalid size or address range, keeping current\n\r");
+          }
+        }
+        else if (key == VT100_ESC)
+        {
+          MPRINTF("ESC - keeping current size\n\r");
+        }
+        else
+        {
+          MPRINTF("Invalid key - keeping current size\n\r");
+        }
+
+        MPRINTF("Press any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '3': // Configure pattern
+      {
+        MPRINTF("\n\r===== Configure Pattern =====\n\r");
+        MPRINTF("Current pattern: %s\n\r",
+                (settings.pattern_type == OSPI_PATTERN_CONSTANT) ? "Constant" :
+                (settings.pattern_type == OSPI_PATTERN_INCREMENT) ? "Increment" : "Random");
+        if (settings.pattern_type == OSPI_PATTERN_CONSTANT || settings.pattern_type == OSPI_PATTERN_INCREMENT)
+        {
+          MPRINTF("Current pattern value: 0x%02X\n\r", settings.pattern_value);
+        }
+        MPRINTF("Press ENTER to edit pattern, ESC to keep current: ");
+
+        uint8_t key = 0;
+        if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+        {
+          MPRINTF("TIMEOUT - keeping current pattern\n\r");
+        }
+        else if (key == '\r' || key == '\n')
+        {
+          MPRINTF("ENTER - entering pattern edit mode\n\r");
+          settings.pattern_type = _Ospi_get_pattern_type();
+          if (settings.pattern_type == OSPI_PATTERN_CONSTANT || settings.pattern_type == OSPI_PATTERN_INCREMENT)
+          {
+            settings.pattern_value = _Ospi_get_pattern_value();
+          }
+          MPRINTF("Pattern updated successfully\n\r");
+        }
+        else if (key == VT100_ESC)
+        {
+          MPRINTF("ESC - keeping current pattern\n\r");
+        }
+        else
+        {
+          MPRINTF("Invalid key - keeping current pattern\n\r");
+        }
+
+        MPRINTF("Press any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '4': // Read operation (memory-mapped)
       {
         MPRINTF("\n\r===== Read Operation (Memory-Mapped) =====\n\r");
 
@@ -590,7 +665,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '3': // Direct read operation
+      case '5': // Direct read operation
       {
         MPRINTF("\n\r===== Direct Read Operation =====\n\r");
 
@@ -650,7 +725,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '4': // Fast read benchmark
+      case '6': // Fast read benchmark
       {
         MPRINTF("\n\r===== Fast Read Benchmark =====\n\r");
         MPRINTF("Using current settings: address 0x%08X, size %u bytes\n\r", settings.address, settings.size);
@@ -718,7 +793,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '5': // Write operation
+      case '7': // Write operation
       {
         MPRINTF("\n\r===== Write Operation =====\n\r");
 
@@ -780,14 +855,21 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '6': // Erase operation
+      case '8': // Erase operation
       {
         MPRINTF("\n\r===== Erase Operation =====\n\r");
         MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", settings.size, settings.address);
         MPRINTF("Continue? (Y/N): ");
 
-        uint8_t confirm;
-        WAIT_CHAR(&confirm, ms_to_ticks(10000));
+        uint8_t confirm = 0;
+        if (WAIT_CHAR(&confirm, ms_to_ticks(10000)) != RES_OK)
+        {
+          MPRINTF("TIMEOUT - Erase operation cancelled\n\r");
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
         MPRINTF("%c\n\r", confirm);
 
         if (confirm != 'Y' && confirm != 'y')
@@ -842,7 +924,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '7': // Switch protocol
+      case '9': // Switch protocol
       {
         MPRINTF("\n\r===== Protocol Switch =====\n\r");
         T_mc80_ospi_protocol new_protocol = _Ospi_select_protocol();
@@ -891,7 +973,44 @@ static uint32_t _Ospi_get_address_input(void)
   GET_MCBL;
   uint32_t address = 0;
 
-  MPRINTF("Enter address (hex, e.g., 1000 for 0x1000): 0x");
+  MPRINTF("Quick addresses:\n\r");
+  MPRINTF("  <1> - 0x00000000 (Start of flash)\n\r");
+  MPRINTF("  <2> - 0x00001000 (4KB offset)\n\r");
+  MPRINTF("  <3> - 0x00010000 (64KB offset)\n\r");
+  MPRINTF("  <4> - 0x00100000 (1MB offset)\n\r");
+  MPRINTF("  <5> - 0x01000000 (16MB offset)\n\r");
+  MPRINTF("  <C> - Custom address\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t choice = 0;
+  if (WAIT_CHAR(&choice, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using custom input\n\r");
+    choice = 'c';  // Default to custom
+  }
+  MPRINTF("%c\n\r", choice);
+
+  switch (choice)
+  {
+    case '1':
+      return 0x00000000;
+    case '2':
+      return 0x00001000;
+    case '3':
+      return 0x00010000;
+    case '4':
+      return 0x00100000;
+    case '5':
+      return 0x01000000;
+    case 'C':
+    case 'c':
+      break;
+    default:
+      MPRINTF("Invalid choice, using custom input\n\r");
+      break;
+  }
+
+  MPRINTF("Enter address (with or without 0x prefix, e.g., 1000 or 0x1000): ");
 
   char input_buffer[16];
   memset(input_buffer, 0, sizeof(input_buffer));
@@ -900,7 +1019,10 @@ static uint32_t _Ospi_get_address_input(void)
   while (pos < 15)
   {
     uint8_t key;
-    WAIT_CHAR(&key, ms_to_ticks(30000));
+    if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+    {
+      break; // Exit on timeout
+    }
 
     if (key == '\r' || key == '\n')
     {
@@ -915,7 +1037,7 @@ static uint32_t _Ospi_get_address_input(void)
         MPRINTF("\b \b");
       }
     }
-    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f'))
+    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f') || key == 'x' || key == 'X')
     {
       input_buffer[pos] = key;
       pos++;
@@ -925,11 +1047,37 @@ static uint32_t _Ospi_get_address_input(void)
 
   MPRINTF("\n\r");
 
-  // Convert hex string to number
-  for (uint8_t i = 0; i < pos; i++)
+  // Parse input - handle both "0x1000" and "1000" formats
+  char *hex_start = input_buffer;
+  uint8_t hex_length = pos;
+
+  if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
+    hex_start = &input_buffer[2];
+    hex_length = pos - 2;
+  }
+
+  // Check if we have any hex digits to process
+  if (hex_length == 0)
+  {
+    MPRINTF("No valid hex digits entered, using 0x00000000\n\r");
+    return 0;
+  }
+
+  // Convert hex string to number with overflow check
+  for (uint8_t i = 0; i < hex_length; i++)
+  {
+    char c = hex_start[i];
+    if (c == 0) break; // End of string
+
+    // Check for potential overflow (address > 32-bit max)
+    if (address > (0xFFFFFFFF / 16))
+    {
+      MPRINTF("WARNING: Address value too large, truncating\n\r");
+      break;
+    }
+
     address = address * 16;
-    char c = input_buffer[i];
     if (c >= '0' && c <= '9')
     {
       address += c - '0';
@@ -944,6 +1092,7 @@ static uint32_t _Ospi_get_address_input(void)
     }
   }
 
+  MPRINTF("Parsed address: 0x%08X\n\r", address);
   return address;
 }
 
@@ -959,7 +1108,44 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
   GET_MCBL;
   uint32_t size = 0;
 
-  MPRINTF("Enter size in bytes (decimal, max %u): ", max_size);
+  MPRINTF("Quick sizes:\n\r");
+  MPRINTF("  <1> - 256 bytes (0x100 - Page size)\n\r");
+  MPRINTF("  <2> - 4096 bytes (0x1000 - Sector size)\n\r");
+  MPRINTF("  <3> - 65536 bytes (0x10000 - Block size)\n\r");
+  MPRINTF("  <4> - 1048576 bytes (0x100000 - 1MB)\n\r");
+  MPRINTF("  <5> - 16777216 bytes (0x1000000 - 16MB)\n\r");
+  MPRINTF("  <C> - Custom size\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t choice = 0;
+  if (WAIT_CHAR(&choice, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using custom input\n\r");
+    choice = 'c';  // Default to custom
+  }
+  MPRINTF("%c\n\r", choice);
+
+  switch (choice)
+  {
+    case '1':
+      return 256;
+    case '2':
+      return 4096;
+    case '3':
+      return 65536;
+    case '4':
+      return (1048576 <= max_size) ? 1048576 : max_size;
+    case '5':
+      return (16777216 <= max_size) ? 16777216 : max_size;
+    case 'C':
+    case 'c':
+      break;
+    default:
+      MPRINTF("Invalid choice, using custom input\n\r");
+      break;
+  }
+
+  MPRINTF("Enter size in bytes (decimal or hex with 0x prefix, max %u): ", max_size);
 
   char input_buffer[16];
   memset(input_buffer, 0, sizeof(input_buffer));
@@ -968,7 +1154,10 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
   while (pos < 15)
   {
     uint8_t key;
-    WAIT_CHAR(&key, ms_to_ticks(30000));
+    if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+    {
+      break; // Exit on timeout
+    }
 
     if (key == '\r' || key == '\n')
     {
@@ -983,7 +1172,7 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
         MPRINTF("\b \b");
       }
     }
-    else if (key >= '0' && key <= '9')
+    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f') || key == 'x' || key == 'X')
     {
       input_buffer[pos] = key;
       pos++;
@@ -993,10 +1182,73 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
 
   MPRINTF("\n\r");
 
-  // Convert decimal string to number
-  for (uint8_t i = 0; i < pos; i++)
+  // Check if input is hexadecimal (starts with 0x or 0X)
+  bool is_hex = false;
+  char *parse_start = input_buffer;
+  uint8_t parse_length = pos;
+
+  if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
-    size = size * 10 + (input_buffer[i] - '0');
+    is_hex = true;
+    parse_start = &input_buffer[2];
+    parse_length = pos - 2;
+  }
+
+  // Check if we have any valid digits to process
+  if (parse_length == 0)
+  {
+    MPRINTF("No valid digits entered, using 0\n\r");
+    return 0;
+  }
+
+  // Convert string to number
+  if (is_hex)
+  {
+    // Convert hex string to number with overflow check
+    for (uint8_t i = 0; i < parse_length; i++)
+    {
+      char c = parse_start[i];
+      if (c == 0) break; // End of string
+
+      // Check for potential overflow
+      if (size > (0xFFFFFFFF / 16))
+      {
+        MPRINTF("WARNING: Size value too large, truncating\n\r");
+        break;
+      }
+
+      size = size * 16;
+      if (c >= '0' && c <= '9')
+      {
+        size += c - '0';
+      }
+      else if (c >= 'A' && c <= 'F')
+      {
+        size += c - 'A' + 10;
+      }
+      else if (c >= 'a' && c <= 'f')
+      {
+        size += c - 'a' + 10;
+      }
+    }
+  }
+  else
+  {
+    // Convert decimal string to number
+    for (uint8_t i = 0; i < parse_length; i++)
+    {
+      char c = parse_start[i];
+      if (c < '0' || c > '9') break; // Only process decimal digits
+
+      // Check for potential overflow
+      if (size > (0xFFFFFFFF / 10))
+      {
+        MPRINTF("WARNING: Size value too large, truncating\n\r");
+        break;
+      }
+
+      size = size * 10 + (c - '0');
+    }
   }
 
   if (size > max_size)
@@ -1005,6 +1257,7 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
     size = max_size;
   }
 
+  MPRINTF("Selected size: %u bytes\n\r", size);
   return size;
 }
 
@@ -1024,8 +1277,12 @@ static T_ospi_pattern_type _Ospi_get_pattern_type(void)
   MPRINTF("  <3> - Random values\n\r");
   MPRINTF("Choice: ");
 
-  uint8_t key;
-  WAIT_CHAR(&key, ms_to_ticks(30000));
+  uint8_t key = 0;
+  if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using constant pattern\n\r");
+    return OSPI_PATTERN_CONSTANT;
+  }
   MPRINTF("%c\n\r", key);
 
   switch (key)
@@ -1054,16 +1311,53 @@ static uint8_t _Ospi_get_pattern_value(void)
   GET_MCBL;
   uint32_t value = 0;
 
-  MPRINTF("Enter pattern value (hex, e.g., FF): 0x");
+  MPRINTF("Quick pattern values:\n\r");
+  MPRINTF("  <1> - 0x00 (All zeros)\n\r");
+  MPRINTF("  <2> - 0x55 (Alternating 01010101)\n\r");
+  MPRINTF("  <3> - 0xAA (Alternating 10101010)\n\r");
+  MPRINTF("  <4> - 0xFF (All ones)\n\r");
+  MPRINTF("  <C> - Custom value\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t choice = 0;
+  if (WAIT_CHAR(&choice, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using 0x55\n\r");
+    return 0x55;
+  }
+  MPRINTF("%c\n\r", choice);
+
+  switch (choice)
+  {
+    case '1':
+      return 0x00;
+    case '2':
+      return 0x55;
+    case '3':
+      return 0xAA;
+    case '4':
+      return 0xFF;
+    case 'C':
+    case 'c':
+      break;
+    default:
+      MPRINTF("Invalid choice, using custom input\n\r");
+      break;
+  }
+
+  MPRINTF("Enter pattern value (hex, with or without 0x prefix, e.g., FF or 0xFF): ");
 
   char input_buffer[4];
   memset(input_buffer, 0, sizeof(input_buffer));
 
   uint8_t pos = 0;
-  while (pos < 2)
+  while (pos < 3)
   {
     uint8_t key;
-    WAIT_CHAR(&key, ms_to_ticks(30000));
+    if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+    {
+      break; // Exit on timeout
+    }
 
     if (key == '\r' || key == '\n')
     {
@@ -1078,7 +1372,7 @@ static uint8_t _Ospi_get_pattern_value(void)
         MPRINTF("\b \b");
       }
     }
-    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f'))
+    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f') || key == 'x' || key == 'X')
     {
       input_buffer[pos] = key;
       pos++;
@@ -1088,11 +1382,37 @@ static uint8_t _Ospi_get_pattern_value(void)
 
   MPRINTF("\n\r");
 
-  // Convert hex string to number
-  for (uint8_t i = 0; i < pos; i++)
+  // Parse input - handle both "0xFF" and "FF" formats
+  char *hex_start = input_buffer;
+  uint8_t hex_length = pos;
+
+  if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
+    hex_start = &input_buffer[2];
+    hex_length = pos - 2;
+  }
+
+  // Check if we have any hex digits to process
+  if (hex_length == 0)
+  {
+    MPRINTF("No valid hex digits entered, using 0x00\n\r");
+    return 0;
+  }
+
+  // Convert hex string to number with range check
+  for (uint8_t i = 0; i < hex_length; i++)
+  {
+    char c = hex_start[i];
+    if (c == 0) break; // End of string
+
+    // Check for byte overflow (value > 255)
+    if (value > (0xFF / 16))
+    {
+      MPRINTF("WARNING: Value too large for byte, using 0xFF\n\r");
+      return 0xFF;
+    }
+
     value = value * 16;
-    char c = input_buffer[i];
     if (c >= '0' && c <= '9')
     {
       value += c - '0';
@@ -1107,6 +1427,7 @@ static uint8_t _Ospi_get_pattern_value(void)
     }
   }
 
+  MPRINTF("Selected pattern value: 0x%02X\n\r", (uint8_t)value);
   return (uint8_t)value;
 }
 
