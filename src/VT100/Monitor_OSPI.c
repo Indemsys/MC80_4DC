@@ -49,6 +49,7 @@ typedef struct
   uint32_t write_time_us;
   uint32_t erase_time_us;
   uint32_t last_bytes_transferred;
+  uint32_t last_checksum;
   bool     results_valid;
 } T_ospi_operation_results;
 
@@ -80,6 +81,7 @@ static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us
 static void                 _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results);
 static bool                 _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size);
 static bool                 _Ospi_verify_erase_data(uint32_t address, uint32_t size);
+static uint32_t             _Ospi_calculate_checksum(uint8_t *data, uint32_t size);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
@@ -175,6 +177,8 @@ static void _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_osp
       MPRINTF("Erase speed                   : ");
       _Ospi_display_speed(results->last_bytes_transferred, results->erase_time_us);
     }
+
+    MPRINTF("Last checksum (CRC32)         : 0x%08X\n\r", results->last_checksum);
   }
   else
   {
@@ -184,11 +188,12 @@ static void _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_osp
   // Display menu options
   MPRINTF("\n\r===== Operations Menu =====\n\r");
   MPRINTF("  <1> - Configure settings\n\r");
-  MPRINTF("  <2> - Read operation\n\r");
-  MPRINTF("  <3> - Write operation\n\r");
-  MPRINTF("  <4> - Erase operation\n\r");
-  MPRINTF("  <5> - Fast read benchmark\n\r");
-  MPRINTF("  <6> - Switch protocol\n\r");
+  MPRINTF("  <2> - Read operation (memory-mapped)\n\r");
+  MPRINTF("  <3> - Direct read operation\n\r");
+  MPRINTF("  <4> - Fast read benchmark\n\r");
+  MPRINTF("  <5> - Write operation\n\r");
+  MPRINTF("  <6> - Erase operation\n\r");
+  MPRINTF("  <7> - Switch protocol\n\r");
   MPRINTF("  <R> - Return to main menu\n\r");
   MPRINTF("Choice: ");
 }
@@ -525,9 +530,9 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '2': // Read operation
+      case '2': // Read operation (memory-mapped)
       {
-        MPRINTF("\n\r===== Read Operation =====\n\r");
+        MPRINTF("\n\r===== Read Operation (Memory-Mapped) =====\n\r");
 
         // Allocate buffer
         uint8_t *read_buffer = (uint8_t *)App_malloc(settings.size);
@@ -563,9 +568,14 @@ void OSPI_test_custom_operations(uint8_t keycode)
           // Display data (limited to prevent excessive output)
           _Ospi_display_data(read_buffer, settings.size, settings.address);
 
+          // Calculate and display checksum
+          uint32_t checksum = _Ospi_calculate_checksum(read_buffer, settings.size);
+          MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
+
           // Update results
           results.read_time_us = elapsed_us;
           results.last_bytes_transferred = settings.size;
+          results.last_checksum = checksum;
           results.results_valid = true;
         }
         else
@@ -580,7 +590,135 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '3': // Write operation
+      case '3': // Direct read operation
+      {
+        MPRINTF("\n\r===== Direct Read Operation =====\n\r");
+
+        // Allocate buffer
+        uint8_t *read_buffer = (uint8_t *)App_malloc(settings.size);
+        if (read_buffer == NULL)
+        {
+          MPRINTF("ERROR: Failed to allocate %u bytes for read buffer\n\r", settings.size);
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
+
+        // Clear buffer
+        memset(read_buffer, 0x00, settings.size);
+
+        // Measure time and perform direct read
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Direct read operation         : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", settings.address);
+          MPRINTF("Size                          : %u bytes\n\r", settings.size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Transfer speed                : ");
+          _Ospi_display_speed(settings.size, elapsed_us);
+
+          // Display data (limited to prevent excessive output)
+          _Ospi_display_data(read_buffer, settings.size, settings.address);
+
+          // Calculate and display checksum
+          uint32_t checksum = _Ospi_calculate_checksum(read_buffer, settings.size);
+          MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
+
+          // Update results
+          results.read_time_us = elapsed_us;
+          results.last_bytes_transferred = settings.size;
+          results.last_checksum = checksum;
+          results.results_valid = true;
+        }
+        else
+        {
+          MPRINTF("Direct read operation         : FAILED (error: 0x%X)\n\r", err);
+        }
+
+        App_free(read_buffer);
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '4': // Fast read benchmark
+      {
+        MPRINTF("\n\r===== Fast Read Benchmark =====\n\r");
+        MPRINTF("Using current settings: address 0x%08X, size %u bytes\n\r", settings.address, settings.size);
+
+        // Use current settings size for benchmark
+        uint32_t benchmark_size = settings.size;
+        if ((settings.address + benchmark_size - 1) > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Address range exceeds flash size\n\r");
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
+
+        // Allocate buffer
+        uint8_t *read_buffer = (uint8_t *)App_malloc(benchmark_size);
+        if (read_buffer == NULL)
+        {
+          MPRINTF("ERROR: Failed to allocate %u bytes for benchmark buffer\n\r", benchmark_size);
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
+
+        MPRINTF("Performing fast read benchmark...\n\r");
+
+        // Measure time and perform read (no data display)
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, benchmark_size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Fast read benchmark           : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", settings.address);
+          MPRINTF("Size                          : %u bytes\n\r", benchmark_size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Maximum read speed            : ");
+          _Ospi_display_speed(benchmark_size, elapsed_us);
+
+          // Calculate and display checksum for verification
+          uint32_t checksum = _Ospi_calculate_checksum(read_buffer, benchmark_size);
+          MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
+
+          // Update results
+          results.read_time_us = elapsed_us;
+          results.last_bytes_transferred = benchmark_size;
+          results.last_checksum = checksum;
+          results.results_valid = true;
+        }
+        else
+        {
+          MPRINTF("Fast read benchmark           : FAILED (error: 0x%X)\n\r", err);
+        }
+
+        App_free(read_buffer);
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '5': // Write operation
       {
         MPRINTF("\n\r===== Write Operation =====\n\r");
 
@@ -642,7 +780,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '4': // Erase operation
+      case '6': // Erase operation
       {
         MPRINTF("\n\r===== Erase Operation =====\n\r");
         MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", settings.size, settings.address);
@@ -704,70 +842,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '5': // Fast read benchmark
-      {
-        MPRINTF("\n\r===== Fast Read Benchmark =====\n\r");
-        MPRINTF("Using current settings: address 0x%08X, size %u bytes\n\r", settings.address, settings.size);
-
-        // Use current settings size for benchmark
-        uint32_t benchmark_size = settings.size;
-        if ((settings.address + benchmark_size - 1) > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Address range exceeds flash size\n\r");
-          MPRINTF("Press any key to continue...\n\r");
-          uint8_t dummy_key;
-          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-          break;
-        }
-
-        // Allocate buffer
-        uint8_t *read_buffer = (uint8_t *)App_malloc(benchmark_size);
-        if (read_buffer == NULL)
-        {
-          MPRINTF("ERROR: Failed to allocate %u bytes for benchmark buffer\n\r", benchmark_size);
-          MPRINTF("Press any key to continue...\n\r");
-          uint8_t dummy_key;
-          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-          break;
-        }
-
-        MPRINTF("Performing fast read benchmark...\n\r");
-
-        // Measure time and perform read (no data display)
-        T_sys_timestump start_time;
-        Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, benchmark_size);
-        T_sys_timestump end_time;
-        Get_hw_timestump(&end_time);
-        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
-
-        if (err == FSP_SUCCESS)
-        {
-          MPRINTF("Fast read benchmark           : SUCCESS\n\r");
-          MPRINTF("Address                       : 0x%08X\n\r", settings.address);
-          MPRINTF("Size                          : %u bytes\n\r", benchmark_size);
-          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
-          MPRINTF("Maximum read speed            : ");
-          _Ospi_display_speed(benchmark_size, elapsed_us);
-
-          // Update results
-          results.read_time_us = elapsed_us;
-          results.last_bytes_transferred = benchmark_size;
-          results.results_valid = true;
-        }
-        else
-        {
-          MPRINTF("Fast read benchmark           : FAILED (error: 0x%X)\n\r", err);
-        }
-
-        App_free(read_buffer);
-        MPRINTF("\nPress any key to continue...\n\r");
-        uint8_t dummy_key;
-        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-        break;
-      }
-
-      case '6': // Switch protocol
+      case '7': // Switch protocol
       {
         MPRINTF("\n\r===== Protocol Switch =====\n\r");
         T_mc80_ospi_protocol new_protocol = _Ospi_select_protocol();
@@ -1263,4 +1338,37 @@ static bool _Ospi_verify_erase_data(uint32_t address, uint32_t size)
 
   App_free(verify_buffer);
   return all_erased;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Calculate CRC32 checksum for data buffer
+
+  Parameters: data - Data buffer to calculate checksum for
+              size - Size of data in bytes
+
+  Return: CRC32 checksum value
+-----------------------------------------------------------------------------------------------------*/
+static uint32_t _Ospi_calculate_checksum(uint8_t *data, uint32_t size)
+{
+  // CRC32 polynomial: 0x04C11DB7 (Ethernet CRC)
+  const uint32_t polynomial = 0xEDB88320;  // Reflected form of 0x04C11DB7
+  uint32_t       crc         = 0xFFFFFFFF; // Initial value
+
+  for (uint32_t i = 0; i < size; i++)
+  {
+    crc ^= data[i];
+    for (uint8_t bit = 0; bit < 8; bit++)
+    {
+      if (crc & 1)
+      {
+        crc = (crc >> 1) ^ polynomial;
+      }
+      else
+      {
+        crc = crc >> 1;
+      }
+    }
+  }
+
+  return ~crc; // Final XOR with 0xFFFFFFFF
 }

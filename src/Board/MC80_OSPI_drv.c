@@ -216,7 +216,7 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 
 // Periodic polling configuration for status monitoring
 // OSPI timer: (CPU_CLK/BSP_CFG_OCTA_DIV)/2 = (240MHz/2)/2 = 60MHz, formula: 2^(PERITV+1) cycles
-#define MC80_OSPI_PERIODIC_INTERVAL_100US                (0x06U)  // PERITV = 6: 2^7 = 128 cycles = 2.13µs @ 60MHz
+#define MC80_OSPI_PERIODIC_INTERVAL                      (0x06U)  // PERITV = 6: 2^7 = 128 cycles = 2.13µs @ 60MHz
 #define MC80_OSPI_PERIODIC_REPETITIONS_MAX               (0x0FU)  // PERREP = 15: 32768 repetitions (2^15), total time = 2.13µs × 32768 = 69.8ms
 #define MC80_OSPI_PERIODIC_MODE_ENABLE                   (0x01U)  // PERMD = 1: Enable periodic mode
 
@@ -2757,7 +2757,7 @@ static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_c
   cdctl0_value |= (MC80_OSPI_PERIODIC_MODE_ENABLE << OSPI_CDCTL0_PERMD_Pos) & OSPI_CDCTL0_PERMD_Msk;
 
   // Set periodic interval (100µs)
-  cdctl0_value |= (MC80_OSPI_PERIODIC_INTERVAL_100US << OSPI_CDCTL0_PERITV_Pos) & OSPI_CDCTL0_PERITV_Msk;
+  cdctl0_value |= (MC80_OSPI_PERIODIC_INTERVAL << OSPI_CDCTL0_PERITV_Pos) & OSPI_CDCTL0_PERITV_Msk;
 
   // Set maximum repetitions (32768)
   cdctl0_value |= (MC80_OSPI_PERIODIC_REPETITIONS_MAX << OSPI_CDCTL0_PERREP_Pos) & OSPI_CDCTL0_PERREP_Msk;
