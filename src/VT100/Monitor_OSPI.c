@@ -25,7 +25,8 @@
 #define OSPI_PREAMBLE_PATTERN_SIZE    256  // Size for preamble pattern write
 
 // Display sizes
-#define OSPI_DISPLAY_PREVIEW_SIZE     64  // Size for data preview display
+#define OSPI_DISPLAY_PREVIEW_SIZE     64              // Size for data preview display
+#define OSPI_DISPLAY_MAX_SIZE         (128 * 1024)    // Maximum size for data display (128KB)
 
 // Custom operation limits
 #define OSPI_MAX_CUSTOM_SIZE          (1024 * 1024)  // Maximum 1MB for custom operations
@@ -41,6 +42,27 @@ typedef enum
   OSPI_PATTERN_RANDOM
 } T_ospi_pattern_type;
 
+// OSPI operation results structure
+typedef struct
+{
+  uint32_t read_time_us;
+  uint32_t write_time_us;
+  uint32_t erase_time_us;
+  uint32_t last_bytes_transferred;
+  bool     results_valid;
+} T_ospi_operation_results;
+
+// OSPI operation settings structure
+typedef struct
+{
+  uint32_t             address;
+  uint32_t             size;
+  T_ospi_pattern_type  pattern_type;
+  uint8_t              pattern_value;
+  T_mc80_ospi_protocol protocol;
+  bool                 settings_valid;
+} T_ospi_operation_settings;
+
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
 void OSPI_test_custom_operations(uint8_t keycode);
@@ -55,6 +77,9 @@ static uint8_t              _Ospi_get_pattern_value(void);
 static void                 _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value);
 static void                 _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address);
 static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
+static void                 _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results);
+static bool                 _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size);
+static bool                 _Ospi_verify_erase_data(uint32_t address, uint32_t size);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
@@ -71,6 +96,102 @@ const T_VT100_Menu MENU_OSPI = {
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Display custom operations menu with current settings and results
+
+  Parameters: settings - Current operation settings
+              results - Last operation results
+
+  Return:
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results)
+{
+  GET_MCBL;
+  MPRINTF(VT100_CLEAR_AND_HOME);
+  MPRINTF(" ===== Custom OSPI Operations =====\n\r");
+
+  // Display current settings
+  MPRINTF("\n\r===== Current Settings =====\n\r");
+  if (settings->settings_valid)
+  {
+    MPRINTF("Address                       : 0x%08X\n\r", settings->address);
+    MPRINTF("Size                          : %u bytes\n\r", settings->size);
+
+    MPRINTF("Pattern type                  : ");
+    switch (settings->pattern_type)
+    {
+      case OSPI_PATTERN_CONSTANT:
+        MPRINTF("Constant (0x%02X)\n\r", settings->pattern_value);
+        break;
+      case OSPI_PATTERN_INCREMENT:
+        MPRINTF("Increment (start: 0x%02X)\n\r", settings->pattern_value);
+        break;
+      case OSPI_PATTERN_RANDOM:
+        MPRINTF("Random (LFSR)\n\r");
+        break;
+    }
+
+    MPRINTF("Protocol                      : ");
+    switch (settings->protocol)
+    {
+      case MC80_OSPI_PROTOCOL_1S_1S_1S:
+        MPRINTF("Standard SPI (1S-1S-1S)\n\r");
+        break;
+      case MC80_OSPI_PROTOCOL_8D_8D_8D:
+        MPRINTF("Octal DDR (8D-8D-8D)\n\r");
+        break;
+      default:
+        MPRINTF("Unknown\n\r");
+        break;
+    }
+  }
+  else
+  {
+    MPRINTF("No settings configured\n\r");
+  }
+
+  // Display last operation results
+  MPRINTF("\n\r===== Last Operation Results =====\n\r");
+  if (results->results_valid)
+  {
+    if (results->read_time_us > 0)
+    {
+      MPRINTF("Read time                     : %u us\n\r", results->read_time_us);
+      MPRINTF("Read speed                    : ");
+      _Ospi_display_speed(results->last_bytes_transferred, results->read_time_us);
+    }
+
+    if (results->write_time_us > 0)
+    {
+      MPRINTF("Write time                    : %u us\n\r", results->write_time_us);
+      MPRINTF("Write speed                   : ");
+      _Ospi_display_speed(results->last_bytes_transferred, results->write_time_us);
+    }
+
+    if (results->erase_time_us > 0)
+    {
+      MPRINTF("Erase time                    : %u us\n\r", results->erase_time_us);
+      MPRINTF("Erase speed                   : ");
+      _Ospi_display_speed(results->last_bytes_transferred, results->erase_time_us);
+    }
+  }
+  else
+  {
+    MPRINTF("No operations performed yet\n\r");
+  }
+
+  // Display menu options
+  MPRINTF("\n\r===== Operations Menu =====\n\r");
+  MPRINTF("  <1> - Configure settings\n\r");
+  MPRINTF("  <2> - Read operation\n\r");
+  MPRINTF("  <3> - Write operation\n\r");
+  MPRINTF("  <4> - Erase operation\n\r");
+  MPRINTF("  <5> - Fast read benchmark\n\r");
+  MPRINTF("  <6> - Switch protocol\n\r");
+  MPRINTF("  <R> - Return to main menu\n\r");
+  MPRINTF("Choice: ");
+}
 
 /*-----------------------------------------------------------------------------------------------------
   Description: Display OSPI flash information and status
@@ -310,13 +431,27 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
 void OSPI_test_custom_operations(uint8_t keycode)
 {
   GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== Custom OSPI Operations =====\n\r");
+
+  // Static variables to preserve settings and results between calls
+  static T_ospi_operation_settings settings = { 0 };
+  static T_ospi_operation_results results = { 0 };
+
+  // Initialize default settings on first run
+  if (!settings.settings_valid)
+  {
+    settings.address = 0x00000000;
+    settings.size = 4096;
+    settings.pattern_type = OSPI_PATTERN_CONSTANT;
+    settings.pattern_value = 0x55;
+    settings.protocol = MC80_OSPI_PROTOCOL_1S_1S_1S;
+    settings.settings_valid = true;
+  }
 
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
   if (init_err != FSP_SUCCESS)
   {
+    MPRINTF(VT100_CLEAR_AND_HOME);
     MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
     MPRINTF("Press any key to continue...\n\r");
     uint8_t dummy_key;
@@ -326,13 +461,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
 
   while (1)
   {
-    MPRINTF("\n\r===== Custom Operations Menu =====\n\r");
-    MPRINTF("  <1> - Read from address\n\r");
-    MPRINTF("  <2> - Write to address\n\r");
-    MPRINTF("  <3> - Erase from address\n\r");
-    MPRINTF("  <4> - Switch protocol\n\r");
-    MPRINTF("  <R> - Return to main menu\n\r");
-    MPRINTF("Choice: ");
+    _Ospi_display_custom_menu(&settings, &results);
 
     uint8_t operation;
     WAIT_CHAR(&operation, ms_to_ticks(30000));
@@ -340,40 +469,84 @@ void OSPI_test_custom_operations(uint8_t keycode)
 
     switch (operation)
     {
-      case '1': // Read operation
+      case '1': // Configure settings
+      {
+        MPRINTF("\n\r===== Configure Settings =====\n\r");
+
+        // Get new address
+        MPRINTF("Current address: 0x%08X\n\r", settings.address);
+        MPRINTF("Enter new address or press ENTER to keep current: ");
+
+        uint8_t first_key;
+        WAIT_CHAR(&first_key, ms_to_ticks(30000));
+
+        if (first_key == '\r' || first_key == '\n')
+        {
+          MPRINTF("ENTER - keeping current address\n\r");
+        }
+        else
+        {
+          // Put the first character back and get full address
+          MPRINTF("0x%c", first_key);
+          uint32_t new_address = _Ospi_get_address_input();
+          if (new_address <= OSPI_MAX_FLASH_ADDRESS)
+          {
+            settings.address = new_address;
+          }
+          else
+          {
+            MPRINTF("ERROR: Address exceeds flash size, keeping current\n\r");
+          }
+        }
+
+        // Get new size
+        MPRINTF("Current size: %u bytes\n\r", settings.size);
+        uint32_t new_size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
+        if (new_size > 0 && (settings.address + new_size - 1) <= OSPI_MAX_FLASH_ADDRESS)
+        {
+          settings.size = new_size;
+        }
+        else
+        {
+          MPRINTF("ERROR: Invalid size or address range, keeping current\n\r");
+        }
+
+        // Get new pattern
+        settings.pattern_type = _Ospi_get_pattern_type();
+        if (settings.pattern_type == OSPI_PATTERN_CONSTANT || settings.pattern_type == OSPI_PATTERN_INCREMENT)
+        {
+          settings.pattern_value = _Ospi_get_pattern_value();
+        }
+
+        MPRINTF("Settings updated successfully\n\r");
+        MPRINTF("Press any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '2': // Read operation
       {
         MPRINTF("\n\r===== Read Operation =====\n\r");
 
-        // Get parameters from user
-        uint32_t address = _Ospi_get_address_input();
-        if (address > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Address exceeds flash size\n\r");
-          break;
-        }
-
-        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
-        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
-          break;
-        }
-
         // Allocate buffer
-        uint8_t *read_buffer = (uint8_t *)App_malloc(size);
+        uint8_t *read_buffer = (uint8_t *)App_malloc(settings.size);
         if (read_buffer == NULL)
         {
-          MPRINTF("ERROR: Failed to allocate %u bytes for read buffer\n\r", size);
+          MPRINTF("ERROR: Failed to allocate %u bytes for read buffer\n\r", settings.size);
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
           break;
         }
 
         // Clear buffer
-        memset(read_buffer, 0x00, size);
+        memset(read_buffer, 0x00, settings.size);
 
         // Measure time and perform read
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, address, size);
+        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -381,14 +554,19 @@ void OSPI_test_custom_operations(uint8_t keycode)
         if (err == FSP_SUCCESS)
         {
           MPRINTF("Read operation                : SUCCESS\n\r");
-          MPRINTF("Address                       : 0x%08X\n\r", address);
-          MPRINTF("Size                          : %u bytes\n\r", size);
+          MPRINTF("Address                       : 0x%08X\n\r", settings.address);
+          MPRINTF("Size                          : %u bytes\n\r", settings.size);
           MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
           MPRINTF("Transfer speed                : ");
-          _Ospi_display_speed(size, elapsed_us);
+          _Ospi_display_speed(settings.size, elapsed_us);
 
-          // Display data
-          _Ospi_display_data(read_buffer, size, address);
+          // Display data (limited to prevent excessive output)
+          _Ospi_display_data(read_buffer, settings.size, settings.address);
+
+          // Update results
+          results.read_time_us = elapsed_us;
+          results.last_bytes_transferred = settings.size;
+          results.results_valid = true;
         }
         else
         {
@@ -396,55 +574,34 @@ void OSPI_test_custom_operations(uint8_t keycode)
         }
 
         App_free(read_buffer);
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
       }
 
-      case '2': // Write operation
+      case '3': // Write operation
       {
         MPRINTF("\n\r===== Write Operation =====\n\r");
 
-        // Get parameters from user
-        uint32_t address = _Ospi_get_address_input();
-        if (address > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Address exceeds flash size\n\r");
-          break;
-        }
-
-        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
-        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
-          break;
-        }
-
-        // Get pattern type and value
-        T_ospi_pattern_type pattern_type = _Ospi_get_pattern_type();
-        uint8_t pattern_value = 0;
-        if (pattern_type == OSPI_PATTERN_CONSTANT || pattern_type == OSPI_PATTERN_INCREMENT)
-        {
-          pattern_value = _Ospi_get_pattern_value();
-        }
-
-        // Allocate buffer
-        uint8_t *write_buffer = (uint8_t *)App_malloc(size);
+        // Allocate write buffer
+        uint8_t *write_buffer = (uint8_t *)App_malloc(settings.size);
         if (write_buffer == NULL)
         {
-          MPRINTF("ERROR: Failed to allocate %u bytes for write buffer\n\r", size);
+          MPRINTF("ERROR: Failed to allocate %u bytes for write buffer\n\r", settings.size);
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
           break;
         }
 
         // Generate pattern
-        _Ospi_generate_pattern(write_buffer, size, pattern_type, pattern_value);
-
-        MPRINTF("Generated pattern preview:\n\r");
-        uint32_t preview_size = (size < 64) ? size : 64;
-        _Ospi_display_data(write_buffer, preview_size, 0);
+        _Ospi_generate_pattern(write_buffer, settings.size, settings.pattern_type, settings.pattern_value);
 
         // Measure time and perform write
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
+        fsp_err_t err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -452,11 +609,26 @@ void OSPI_test_custom_operations(uint8_t keycode)
         if (err == FSP_SUCCESS)
         {
           MPRINTF("Write operation               : SUCCESS\n\r");
-          MPRINTF("Address                       : 0x%08X\n\r", address);
-          MPRINTF("Size                          : %u bytes\n\r", size);
           MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
           MPRINTF("Transfer speed                : ");
-          _Ospi_display_speed(size, elapsed_us);
+          _Ospi_display_speed(settings.size, elapsed_us);
+
+          // Verify write data
+          MPRINTF("Verifying written data...\n\r");
+          bool verify_ok = _Ospi_verify_write_data(write_buffer, settings.address, settings.size);
+          if (verify_ok)
+          {
+            MPRINTF("Data verification             : SUCCESS\n\r");
+
+            // Update results only if verification passed
+            results.write_time_us = elapsed_us;
+            results.last_bytes_transferred = settings.size;
+            results.results_valid = true;
+          }
+          else
+          {
+            MPRINTF("Data verification             : FAILED\n\r");
+          }
         }
         else
         {
@@ -464,29 +636,16 @@ void OSPI_test_custom_operations(uint8_t keycode)
         }
 
         App_free(write_buffer);
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
       }
 
-      case '3': // Erase operation
+      case '4': // Erase operation
       {
         MPRINTF("\n\r===== Erase Operation =====\n\r");
-
-        // Get parameters from user
-        uint32_t address = _Ospi_get_address_input();
-        if (address > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Address exceeds flash size\n\r");
-          break;
-        }
-
-        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
-        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
-        {
-          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
-          break;
-        }
-
-        MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", size, address);
+        MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", settings.size, settings.address);
         MPRINTF("Continue? (Y/N): ");
 
         uint8_t confirm;
@@ -496,13 +655,16 @@ void OSPI_test_custom_operations(uint8_t keycode)
         if (confirm != 'Y' && confirm != 'y')
         {
           MPRINTF("Erase operation cancelled\n\r");
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
           break;
         }
 
         // Measure time and perform erase
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
+        fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -510,20 +672,102 @@ void OSPI_test_custom_operations(uint8_t keycode)
         if (err == FSP_SUCCESS)
         {
           MPRINTF("Erase operation               : SUCCESS\n\r");
-          MPRINTF("Address                       : 0x%08X\n\r", address);
-          MPRINTF("Size                          : %u bytes\n\r", size);
           MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
           MPRINTF("Erase speed                   : ");
-          _Ospi_display_speed(size, elapsed_us);
+          _Ospi_display_speed(settings.size, elapsed_us);
+
+          // Verify erase
+          MPRINTF("Verifying erased data...\n\r");
+          bool verify_ok = _Ospi_verify_erase_data(settings.address, settings.size);
+          if (verify_ok)
+          {
+            MPRINTF("Erase verification            : SUCCESS\n\r");
+
+            // Update results only if verification passed
+            results.erase_time_us = elapsed_us;
+            results.last_bytes_transferred = settings.size;
+            results.results_valid = true;
+          }
+          else
+          {
+            MPRINTF("Erase verification            : FAILED\n\r");
+          }
         }
         else
         {
           MPRINTF("Erase operation               : FAILED (error: 0x%X)\n\r", err);
         }
+
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
       }
 
-      case '4': // Switch protocol
+      case '5': // Fast read benchmark
+      {
+        MPRINTF("\n\r===== Fast Read Benchmark =====\n\r");
+        MPRINTF("Using current settings: address 0x%08X, size %u bytes\n\r", settings.address, settings.size);
+
+        // Use current settings size for benchmark
+        uint32_t benchmark_size = settings.size;
+        if ((settings.address + benchmark_size - 1) > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Address range exceeds flash size\n\r");
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
+
+        // Allocate buffer
+        uint8_t *read_buffer = (uint8_t *)App_malloc(benchmark_size);
+        if (read_buffer == NULL)
+        {
+          MPRINTF("ERROR: Failed to allocate %u bytes for benchmark buffer\n\r", benchmark_size);
+          MPRINTF("Press any key to continue...\n\r");
+          uint8_t dummy_key;
+          WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+          break;
+        }
+
+        MPRINTF("Performing fast read benchmark...\n\r");
+
+        // Measure time and perform read (no data display)
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, benchmark_size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Fast read benchmark           : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", settings.address);
+          MPRINTF("Size                          : %u bytes\n\r", benchmark_size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Maximum read speed            : ");
+          _Ospi_display_speed(benchmark_size, elapsed_us);
+
+          // Update results
+          results.read_time_us = elapsed_us;
+          results.last_bytes_transferred = benchmark_size;
+          results.results_valid = true;
+        }
+        else
+        {
+          MPRINTF("Fast read benchmark           : FAILED (error: 0x%X)\n\r", err);
+        }
+
+        App_free(read_buffer);
+        MPRINTF("\nPress any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        break;
+      }
+
+      case '6': // Switch protocol
       {
         MPRINTF("\n\r===== Protocol Switch =====\n\r");
         T_mc80_ospi_protocol new_protocol = _Ospi_select_protocol();
@@ -533,11 +777,16 @@ void OSPI_test_custom_operations(uint8_t keycode)
         if (err == FSP_SUCCESS)
         {
           MPRINTF("Protocol switch               : SUCCESS\n\r");
+          settings.protocol = new_protocol;
         }
         else
         {
           MPRINTF("Protocol switch               : FAILED (error: 0x%X)\n\r", err);
         }
+
+        MPRINTF("Press any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
       }
 
@@ -547,6 +796,9 @@ void OSPI_test_custom_operations(uint8_t keycode)
 
       default:
         MPRINTF("Invalid choice\n\r");
+        MPRINTF("Press any key to continue...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
         break;
     }
   }
@@ -839,10 +1091,10 @@ static void _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_addr
 
   // Limit display size to prevent excessive output
   uint32_t display_size = size;
-  if (display_size > 512)
+  if (display_size > OSPI_DISPLAY_MAX_SIZE)
   {
-    display_size = 512;
-    MPRINTF("Displaying first 512 bytes of %u total bytes:\n\r", size);
+    display_size = OSPI_DISPLAY_MAX_SIZE;
+    MPRINTF("Displaying first %u bytes of %u total bytes:\n\r", OSPI_DISPLAY_MAX_SIZE, size);
   }
 
   MPRINTF("\n\rData contents:\n\r");
@@ -922,4 +1174,93 @@ static void _Ospi_display_speed(uint32_t bytes, uint32_t time_us)
   {
     MPRINTF("> 1000 KB/s (operation too fast to measure)\n\r");
   }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Verify written data by reading back and comparing
+
+  Parameters: original_data - Original data that was written
+              address - Flash address where data was written
+              size - Size of data in bytes
+
+  Return: true if verification successful, false otherwise
+-----------------------------------------------------------------------------------------------------*/
+static bool _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size)
+{
+  // Allocate buffer for read-back
+  uint8_t *verify_buffer = (uint8_t *)App_malloc(size);
+  if (verify_buffer == NULL)
+  {
+    GET_MCBL;
+    MPRINTF("ERROR: Failed to allocate verification buffer\n\r");
+    return false;
+  }
+
+  // Read back the data
+  fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, verify_buffer, address, size);
+  if (err != FSP_SUCCESS)
+  {
+    GET_MCBL;
+    MPRINTF("ERROR: Failed to read back data for verification (0x%X)\n\r", err);
+    App_free(verify_buffer);
+    return false;
+  }
+
+  // Compare data
+  bool match = true;
+  for (uint32_t i = 0; i < size; i++)
+  {
+    if (original_data[i] != verify_buffer[i])
+    {
+      match = false;
+      break;
+    }
+  }
+
+  App_free(verify_buffer);
+  return match;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Verify erased data by reading back and checking for 0xFF pattern
+
+  Parameters: address - Flash address that was erased
+              size - Size of erased area in bytes
+
+  Return: true if verification successful (all bytes are 0xFF), false otherwise
+-----------------------------------------------------------------------------------------------------*/
+static bool _Ospi_verify_erase_data(uint32_t address, uint32_t size)
+{
+  // Allocate buffer for read-back
+  uint8_t *verify_buffer = (uint8_t *)App_malloc(size);
+  if (verify_buffer == NULL)
+  {
+    GET_MCBL;
+    MPRINTF("ERROR: Failed to allocate verification buffer\n\r");
+    return false;
+  }
+
+  // Read back the data
+  fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, verify_buffer, address, size);
+  if (err != FSP_SUCCESS)
+  {
+    GET_MCBL;
+    MPRINTF("ERROR: Failed to read back data for verification (0x%X)\n\r", err);
+    App_free(verify_buffer);
+    return false;
+  }
+
+  // Check that all bytes are 0xFF (erased state)
+  bool all_erased = true;
+  for (uint32_t i = 0; i < size; i++)
+  {
+    if (verify_buffer[i] != 0xFF)
+    {
+      all_erased = false;
+      break;
+    }
+  }
+
+  App_free(verify_buffer);
+  return all_erased;
 }

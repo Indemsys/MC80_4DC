@@ -207,6 +207,10 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 // for optimal hardware performance and combination write functionality
 #define MC80_OSPI_BLOCK_WRITE_SIZE                       (64U)
 
+// Size of block for optimized memory-mapped read operations
+// Using large blocks for maximum DMA performance while staying within uint16_t limit
+#define MC80_OSPI_BLOCK_READ_SIZE                        (32768U)  // 32KB blocks for optimal performance
+
 // Timeout for waiting device ready status before write operation (1 second in ThreadX ticks)
 #define MC80_OSPI_DEVICE_READY_TIMEOUT_MS                (1000UL)
 
@@ -731,46 +735,51 @@ fsp_err_t Mc80_ospi_xip_exit(T_mc80_ospi_instance_ctrl *p_ctrl)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: High-performance memory-mapped read from flash using DMA transfer
+  Description: High-performance memory-mapped read from flash using DMA transfer with block optimization
 
   This function performs optimized memory-mapped reading from OSPI flash memory using DMA
-  for maximum performance. The function directly accesses the memory-mapped flash region
-  and uses DMA to transfer data to the destination buffer.
+  for maximum performance. The function processes data in blocks to handle any size transfer
+  while respecting DMA limitations.
+
+  Block-Based Read Operation:
+  - Data is processed in optimized blocks (32KB) for maximum DMA performance
+  - Block size (MC80_OSPI_BLOCK_READ_SIZE) is chosen to maximize throughput while staying within DMA limits
+  - DMA length field is uint16_t (max 65535), so blocks are limited to 32KB for safety margin
+  - Each block is read using a separate DMA transfer for reliable completion
+  - Final partial block (if any) is handled separately to ensure complete data transfer
+  - Supports any total size from 1 byte to multiple megabytes
+  - Hardware prefetch function optimizes sequential read operations automatically
+
+  DMA Limitation Handling:
+  - Solves critical issue where DMA length field (uint16_t) was truncated for large transfers
+  - Previous implementation: bytes > 65535 would be silently truncated to bytes & 0xFFFF
+  - New implementation: safely handles transfers of any size up to 4GB through block processing
+  - Each block transfer is verified for completion before proceeding to next block
 
   Operation sequence:
-  1. Validates input parameters (pointers, size limits, alignment)
+  1. Validates input parameters (pointers, size limits)
   2. Calculates memory-mapped address based on channel and input address
-  3. Configures DMA for memory-to-memory transfer from flash to destination buffer
-  4. Clears DMA completion event flags
-  5. Starts DMA transfer asynchronously
-  6. Waits for DMA completion using RTOS event flags (callback-driven)
-  7. Verifies transfer success using infoGet API
-  8. Returns success when transfer is verified complete
+  3. Processes data in blocks of up to 32KB each
+  4. For each block:
+     a. Configures DMA for memory-to-memory transfer from flash to destination buffer
+     b. Clears DMA completion event flags
+     c. Starts DMA transfer asynchronously
+     d. Waits for DMA completion using RTOS event flags (callback-driven)
+     e. Verifies transfer success using infoGet API
+  5. Returns success when all blocks are verified complete
 
   Performance Benefits:
-  - DMA handles data transfer without CPU intervention
-  - Maximum throughput for large data transfers
+  - DMA handles data transfer without CPU intervention for each block
+  - Maximum throughput for large data transfers through optimal block sizing
   - CPU can perform other tasks during transfer
   - RTOS-based asynchronous completion notification
   - Hardware-optimized memory access patterns
-
-  Memory-mapped Address Calculation:
-  - Device 0 (Channel 0): Flash appears at 0x80000000 + flash_address
-  - Device 1 (Channel 1): Flash appears at 0x90000000 + flash_address
-  - Input address parameter should be the physical flash address (0x00000000-based)
-  - Function automatically calculates the correct memory-mapped address
-
-  DMA Configuration:
-  - Source: Memory-mapped flash address
-  - Destination: User-provided buffer
-  - Transfer mode: Memory-to-memory
-  - Transfer size: 1 byte increments
-  - Completion: Asynchronous callback with RTOS event notification
+  - Eliminates data corruption from DMA length truncation
 
   Parameters: p_ctrl - Pointer to OSPI instance control structure
               p_dest - Destination buffer for read data
               address - Physical flash address to read from (0x00000000-based)
-              bytes - Number of bytes to read
+              bytes - Number of bytes to read (any size up to 4GB)
 
   Return: FSP_SUCCESS - Data read successfully
           FSP_ERR_ASSERTION - Invalid parameters
@@ -809,55 +818,78 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   }
 
   // Get DMA transfer instance from OSPI configuration
-  T_mc80_ospi_extended_cfg const *p_cfg_extend             = p_ctrl->p_cfg->p_extend;
-  transfer_instance_t const      *p_transfer               = p_cfg_extend->p_lower_lvl_transfer;
+  T_mc80_ospi_extended_cfg const *p_cfg_extend = p_ctrl->p_cfg->p_extend;
+  transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
 
-  // Configure DMA for memory-to-memory transfer
-  p_transfer->p_cfg->p_info->p_src                         = (void const *)memory_mapped_address;
-  p_transfer->p_cfg->p_info->p_dest                        = p_dest;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
-  p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
-  p_transfer->p_cfg->p_info->length                        = (uint16_t)bytes;
+  // Process data in blocks to handle any size transfer while respecting DMA limitations
+  uint32_t bytes_remaining = bytes;
+  uint32_t offset          = 0;
 
-  // Reconfigure DMA with new settings
-  err                                                      = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
-  if (FSP_SUCCESS != err)
+  while (bytes_remaining > 0)
   {
-    return err;
+    // Determine current block size (32KB or remaining bytes, whichever is smaller)
+    uint32_t current_block_size;
+    if (bytes_remaining >= MC80_OSPI_BLOCK_READ_SIZE)
+    {
+      current_block_size = MC80_OSPI_BLOCK_READ_SIZE;
+    }
+    else
+    {
+      current_block_size = bytes_remaining;
+    }
+
+    // Configure DMA for current block transfer
+    p_transfer->p_cfg->p_info->p_src                         = (void const *)(memory_mapped_address + offset);
+    p_transfer->p_cfg->p_info->p_dest                        = (uint8_t *)p_dest + offset;
+    p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
+    p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
+    p_transfer->p_cfg->p_info->length                        = (uint16_t)current_block_size;  // Safe cast - always <= 32KB
+
+    // Reconfigure DMA with current block settings
+    err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+    if (FSP_SUCCESS != err)
+    {
+      break;  // Exit on DMA configuration error
+    }
+
+    // Clear DMA event flags before starting transfer
+    Mc80_ospi_dma_transfer_reset_flags();
+
+    // Start DMA transfer for current block
+    err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
+    if (FSP_SUCCESS != err)
+    {
+      break;  // Exit on DMA start error
+    }
+
+    // Wait for current block DMA completion using RTOS event flags (asynchronous)
+    err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
+    if (FSP_SUCCESS != err)
+    {
+      break;  // DMA transfer failed or timed out
+    }
+
+    // Verify current block transfer completion status using infoGet
+    transfer_properties_t transfer_properties = { 0U };
+    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+    if (FSP_SUCCESS != err)
+    {
+      break;  // Exit on transfer status error
+    }
+
+    // Check if current block transfer completed successfully (remaining length should be 0)
+    if (transfer_properties.transfer_length_remaining > 0)
+    {
+      err = FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
+      break;
+    }
+
+    // Move to next block
+    offset += current_block_size;
+    bytes_remaining -= current_block_size;
   }
 
-  // Clear DMA event flags before starting transfer
-  Mc80_ospi_dma_transfer_reset_flags();
-
-  // Start DMA transfer
-  err = p_transfer->p_api->softwareStart(p_transfer->p_ctrl, TRANSFER_START_MODE_REPEAT);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Wait for DMA completion using RTOS event flags (asynchronous)
-  err = Mc80_ospi_dma_wait_for_completion(MS_TO_TICKS(OSPI_DMA_COMPLETION_TIMEOUT_MS));
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Verify transfer completion status using infoGet
-  transfer_properties_t transfer_properties = { 0U };
-  err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  // Check if transfer completed successfully (remaining length should be 0)
-  if (transfer_properties.transfer_length_remaining > 0)
-  {
-    return FSP_ERR_TRANSFER_ABORTED;  // Transfer did not complete properly
-  }
-
-  return FSP_SUCCESS;
+  return err;
 }
 
 /*-----------------------------------------------------------------------------------------------------
