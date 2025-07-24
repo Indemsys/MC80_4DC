@@ -9,7 +9,7 @@
 /*-----------------------------------------------------------------------------------------------------
   OSPI Wait Loop Debug System - can be disabled with MC80_OSPI_DEBUG_WAIT_LOOPS = 0
 -----------------------------------------------------------------------------------------------------*/
-#define MC80_OSPI_DEBUG_WAIT_LOOPS (1)  // Set to 0 to disable all debug measurements
+#define MC80_OSPI_DEBUG_WAIT_LOOPS (0)  // Set to 0 to disable all debug measurements
 
 #if MC80_OSPI_DEBUG_WAIT_LOOPS
 
@@ -216,6 +216,12 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 #define MC80_OSPI_PERIODIC_REPETITIONS_MAX               (0x0FU)  // PERREP = 15: 32768 repetitions (2^15), total time = 2.13µs × 32768 = 69.8ms
 #define MC80_OSPI_PERIODIC_MODE_ENABLE                   (0x01U)  // PERMD = 1: Enable periodic mode
 
+// Common periodic polling values for flash status monitoring
+#define MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED                (0x00000000U)  // WIP bit = 0 (device ready)
+#define MC80_OSPI_WAIT_WIP_CLEAR_MASK                    (0xFFFFFFFEU)  // Compare only WIP bit (bit 0), ignore all others
+#define MC80_OSPI_WAIT_WEL_SET_EXPECTED                  (0x00000002U)  // WEL bit = 1 (write enabled)
+#define MC80_OSPI_WAIT_WEL_SET_MASK                      (0xFFFFFFFDU)  // Compare only WEL bit (bit 1), ignore all others
+
 /*-----------------------------------------------------------------------------------------------------
   Static function prototypes
 -----------------------------------------------------------------------------------------------------*/
@@ -228,7 +234,7 @@ static void                                _Mc80_ospi_xip(T_mc80_ospi_instance_c
 void                                       OSPI_dma_callback(dmac_callback_args_t *p_args);
 static fsp_err_t                           _Ospi_dma_event_flags_initialize(void);
 static void                                _Ospi_dma_event_flags_cleanup(void);
-static fsp_err_t                           _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl);
+static fsp_err_t                           _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t expected_value, uint32_t comparison_mask);
 static void                                _Mc80_ospi_periodic_status_stop(T_mc80_ospi_instance_ctrl *p_ctrl);
 void                                       ospi_cmdcmp_isr(void);
 
@@ -1078,7 +1084,7 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 
     // Wait for device ready status after completing block write operation
     // Use hardware periodic polling to check write completion
-    if (_Mc80_ospi_periodic_status_start(p_ctrl) == FSP_SUCCESS)
+    if (_Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK) == FSP_SUCCESS)
     {
       // Wait for periodic polling completion using hardware automation
       status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
@@ -1139,10 +1145,10 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     }
   }
 
-  uint16_t               erase_command = 0;
-  uint32_t               chip_address_base;
-  uint32_t               chip_address;
-  bool                   send_address = true;
+  uint16_t erase_command = 0;
+  uint32_t chip_address_base;
+  uint32_t chip_address;
+  bool     send_address = true;
 
   if (p_ctrl->channel)
   {
@@ -1203,7 +1209,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
   // Wait for erase operation completion using hardware periodic polling
-  fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl);
+  fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK);
   if (FSP_SUCCESS != status_err)
   {
     return FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
@@ -1223,7 +1229,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   if (MC80_OSPI_CFG_PREFETCH_FUNCTION)
   {
     R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
-    p_reg->BMCTL1 = MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK;
+    p_reg->BMCTL1             = MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK;
   }
 
   return FSP_SUCCESS;
@@ -1710,22 +1716,20 @@ static fsp_err_t _Mc80_ospi_memory_mapped_write_enable(T_mc80_ospi_instance_ctrl
 
   _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
-  // In case write enable is not checked, assume write is enabled
-  bool write_enabled = true;
-
-  // Verify write is enabled
-  for (uint32_t i = 0U; i < MC80_OSPI_MAX_WRITE_ENABLE_LOOPS; i++)
+  // Verify write is enabled using hardware periodic polling
+  fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WEL_SET_EXPECTED, MC80_OSPI_WAIT_WEL_SET_MASK);
+  if (FSP_SUCCESS != status_err)
   {
-    write_enabled = _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_enable_bit);
-    if (write_enabled)
-    {
-      break;
-    }
+    return FSP_ERR_NOT_ENABLED;  // Failed to start periodic status polling
   }
 
-  if (!write_enabled)
+  // Wait for periodic polling completion using hardware automation
+  status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+  _Mc80_ospi_periodic_status_stop(p_ctrl);
+
+  if (FSP_SUCCESS != status_err)
   {
-    return FSP_ERR_NOT_ENABLED;
+    return FSP_ERR_NOT_ENABLED;  // Write enable verification failed or timed out
   }
 
   return FSP_SUCCESS;
@@ -1793,7 +1797,7 @@ static void _Mc80_ospi_direct_transfer(T_mc80_ospi_instance_ctrl         *p_ctrl
   }
 
   // Configure manual command control: cancel ongoing transactions, select target channel
-  p_reg->CDCTL0 = ((((uint32_t)channel) << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
+  p_reg->CDCTL0       = ((((uint32_t)channel) << OSPI_CDCTL0_CSSEL_Pos) & OSPI_CDCTL0_CSSEL_Msk);
 
   // Load the transaction configuration and address into command buffer
   p_reg->CDBUF[0].CDT = cdtbuf0;              // Command Data Transaction register
@@ -2656,17 +2660,34 @@ fsp_err_t Mc80_ospi_capture_register_snapshot(T_mc80_ospi_instance_ctrl *const p
 
   This function configures the OSPI peripheral to automatically and periodically
   read the flash status register at 100µs intervals for up to 32768 repetitions.
-  The polling stops automatically when the WIP (Write In Progress) bit becomes 0.
+  The polling stops automatically when the specified condition is met.
+
+  Usage Examples:
+  1. Wait for WIP bit to clear (write/erase completion):
+     _Mc80_ospi_periodic_status_start(p_ctrl, 0x00000000U, 0xFFFFFFFEU);
+     or use convenience function: _Mc80_ospi_wait_wip_clear(p_ctrl);
+
+  2. Wait for WEL bit to be set (write enable confirmation):
+     _Mc80_ospi_periodic_status_start(p_ctrl, 0x00000002U, 0xFFFFFFFDU);
+     or use convenience function: _Mc80_ospi_wait_wel_set(p_ctrl);
+
+  3. Wait for specific status pattern (custom condition):
+     _Mc80_ospi_periodic_status_start(p_ctrl, 0x00000040U, 0xFFFFFFBFU); // Wait for bit 6 set
+
+  4. Wait for multiple bits (e.g., WIP=0 AND WEL=1):
+     _Mc80_ospi_periodic_status_start(p_ctrl, 0x00000002U, 0xFFFFFFFCU); // Compare bits 0,1
 
   Parameters:
     p_ctrl - Pointer to the control structure
+    expected_value - Expected value for comparison (when condition is met, polling stops)
+    comparison_mask - Mask for bit comparison (0 = compare bit, 1 = ignore bit)
 
   Return:
     FSP_SUCCESS       - Periodic polling started successfully
     FSP_ERR_ASSERTION - Invalid parameters
     FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
-static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl)
+static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_ctrl, uint32_t expected_value, uint32_t comparison_mask)
 {
   R_XSPI0_Type *const                 p_reg        = p_ctrl->p_reg;
   T_mc80_ospi_xspi_command_set const *p_cmd_set    = p_ctrl->p_cmd_set;
@@ -2761,16 +2782,13 @@ static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_c
   }
 
   // Configure periodic transaction expected value (CDCTL1.PEREXP)
-  // Expected value: WIP = 0 (device ready state)
-  p_reg->CDCTL1                       = 0x00000000U;
+  // Set the expected value passed as parameter
+  p_reg->CDCTL1                       = expected_value;
 
   // Configure periodic transaction mask (CDCTL2.PERMSK)
+  // Set the comparison mask passed as parameter
   // Bits set to 1 are IGNORED, bits set to 0 are COMPARED
-  // We want to compare only WIP bit (bit 0), so set bit 0 = 0, all others = 1
-  // This works for both SPI and 8D-8D-8D modes:
-  // - In SPI: ignores unused status bits (1-31)
-  // - In 8D-8D-8D: ignores dummy data in upper bytes (8-31) and unused status bits (1-7)
-  p_reg->CDCTL2                       = 0xFFFFFFFEU;            // Bit 0 = 0 (compared), bits 1-31 = 1 (ignored)  // Clear any existing interrupts before starting
+  p_reg->CDCTL2                       = comparison_mask;        // Clear any existing interrupts before starting
 
   p_reg->INTC                         = OSPI_INTC_CMDCMPC_Msk;  // Clear OSPI interrupt flags
   R_ICU->IELSR_b[OSPI_CMDCMP_IRQn].IR = 0;                      // Clear any pending interrupt flag
@@ -2822,18 +2840,18 @@ static void _Mc80_ospi_periodic_status_stop(T_mc80_ospi_instance_ctrl *p_ctrl)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Wait for OSPI command completion using event flags.
+  Wait for WIP (Write In Progress) bit to clear using hardware periodic polling.
 
-  This function waits for the periodic status polling to complete by monitoring
-  the command completion event flag set by the ISR.
+  This is a convenience function that calls _Mc80_ospi_periodic_status_start with predefined
+  parameters for waiting until the flash device finishes write/erase operations.
 
   Parameters:
-    timeout_ticks - Maximum time to wait in ThreadX ticks
+    p_ctrl - Pointer to the control structure
 
   Return:
-    FSP_SUCCESS               - Command completed successfully
-    FSP_ERR_TIMEOUT          - Timeout occurred
-    FSP_ERR_NOT_INITIALIZED  - Event flags not initialized
+    FSP_SUCCESS       - Periodic polling started successfully
+    FSP_ERR_ASSERTION - Invalid parameters
+    FSP_ERR_NOT_OPEN  - Driver is not opened
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_cmdcmp_wait_for_completion(ULONG timeout_ticks)
 {
