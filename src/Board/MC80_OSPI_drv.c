@@ -257,8 +257,6 @@ static uint32_t g_mc80_ospi_channels_open_flags = 0;
 -----------------------------------------------------------------------------------------------------*/
 void ospi_cmdcmp_isr(void)
 {
-  ITM_EVENT8(2, 1);
-
   // Since we use only OSPI0 in this project, directly access R_XSPI0
   R_XSPI0_Type *const p_reg = R_XSPI0;
 
@@ -1089,7 +1087,6 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       // Wait for periodic polling completion using hardware automation
       status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
       _Mc80_ospi_periodic_status_stop(p_ctrl);
-      ITM_EVENT8(3, 1);
 
       if (FSP_SUCCESS != status_err)
       {
@@ -1218,7 +1215,6 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   // Wait for periodic polling completion using hardware automation
   status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
   _Mc80_ospi_periodic_status_stop(p_ctrl);
-  ITM_EVENT8(3, 1);
 
   if (FSP_SUCCESS != status_err)
   {
@@ -2795,7 +2791,6 @@ static fsp_err_t _Mc80_ospi_periodic_status_start(T_mc80_ospi_instance_ctrl *p_c
   NVIC_ClearPendingIRQ(OSPI_CMDCMP_IRQn);                       // Clear NVIC pending interrupt
   p_reg->INTE |= OSPI_INTE_CMDCMPE_Msk;                         // Enable command completion interrupt
 
-  ITM_EVENT8(1, 1);
   // Write periodic control configuration and start periodic polling
   p_reg->CDCTL0 = cdctl0_value | OSPI_CDCTL0_TRREQ_Msk;
 

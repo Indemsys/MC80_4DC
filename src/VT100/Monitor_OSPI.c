@@ -842,16 +842,16 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     return;
   }
 
-  // Set 1S-1S-1S protocol for pattern verification
-  MPRINTF("\n\rSetting 1S-1S-1S protocol for pattern check...\n\r");
-  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  // Set 8D-8D-8D protocol for the entire test sequence
+  MPRINTF("\n\rSetting 8D-8D-8D protocol for pattern check and calibration...\n\r");
+  fsp_err_t err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
   if (err == FSP_SUCCESS)
   {
-    MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
+    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
   }
   else
   {
-    MPRINTF("1S-1S-1S Protocol Set          : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
     MPRINTF("Cannot continue without protocol setup\n\r");
     MPRINTF("Press any key to continue...\n\r");
     uint8_t dummy_key;
@@ -898,7 +898,7 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   if (!patterns_valid)
   {
     MPRINTF("\n\rWARNING: Preamble patterns not found or invalid!\n\r");
-    MPRINTF("Please use menu option 7 to write patterns first\n\r");
+    MPRINTF("Please use menu option 8 to write patterns first\n\r");
     MPRINTF("Calibration may fail without proper patterns\n\r");
     MPRINTF("Press any key to continue anyway...\n\r");
     uint8_t dummy_key;
@@ -909,109 +909,8 @@ void OSPI_test_8d_calibration(uint8_t keycode)
     MPRINTF("\n\rPreamble patterns verified     : SUCCESS\n\r");
   }
 
-  // Configure flash to OPI DTR mode before setting 8D-8D-8D protocol
-  MPRINTF("\n\rConfiguring flash for OPI DTR mode...\n\r");
-
-  // Read CR2 before making changes to see current state
-  MPRINTF("Reading current CR2 value...\n\r");
-  T_mc80_ospi_direct_transfer read_cr2_initial_cmd = {
-    .command        = MX25_CMD_RDCR2,
-    .command_length = 1,
-    .address_length = 4,
-    .address        = 0x00000000,
-    .data_length    = 1,
-    .dummy_cycles   = 0,
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_initial_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
-  if (err == FSP_SUCCESS)
-  {
-    uint8_t cr2_initial = (uint8_t)(read_cr2_initial_cmd.data & 0xFF);
-    MPRINTF("CR2 Initial Value              : 0x%02X\n\r", cr2_initial);
-    if (cr2_initial == 0x00)
-    {
-      MPRINTF("Flash is currently in SPI mode\n\r");
-    }
-    else if (cr2_initial == 0x02)
-    {
-      MPRINTF("Flash is already in OPI DTR mode\n\r");
-    }
-    else
-    {
-      MPRINTF("Flash is in unknown mode\n\r");
-    }
-  }
-  else
-  {
-    MPRINTF("CR2 Initial Read               : FAILED (error: 0x%X)\n\r", err);
-  }
-
-  // Write Enable for CR2 configuration
-  T_mc80_ospi_direct_transfer write_enable_cmd = {
-    .command        = MX25_CMD_WREN,
-    .command_length = 1,
-    .address_length = 0,
-    .address        = 0,
-    .data_length    = 0,
-    .dummy_cycles   = 0,
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Write Enable for CR2           : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("Write Enable for CR2           : FAILED (error: 0x%X)\n\r", err);
-  }
-
-  // Write CR2 to enable OPI DTR mode (value 0x02)
-  T_mc80_ospi_direct_transfer write_cr2_cmd = {
-    .command        = MX25_CMD_WRCR2,
-    .command_length = 1,
-    .address_length = 4,           // 4-byte address required for CR2
-    .address        = 0x00000000,  // CR2 address
-    .data_length    = 1,
-    .data           = 0x02,        // Enable OPI DTR mode
-    .dummy_cycles   = 0,
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("CR2 Write (OPI DTR Enable)     : SUCCESS\n\r");
-
-    // Wait for write completion and flash mode switch
-    R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-    MPRINTF("Flash should now be in OPI DTR mode\n\r");
-  }
-  else
-  {
-    MPRINTF("CR2 Write (OPI DTR Enable)     : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Flash may not support OPI DTR mode switch\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Now set 8D-8D-8D protocol for calibration
-  MPRINTF("\n\rSetting 8D-8D-8D protocol for calibration...\n\r");
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot continue without protocol setup\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
+  // Flash is already configured to OPI DTR mode by the safe protocol switch
+  MPRINTF("\n\rFlash configured for OPI DTR mode by protocol switch\n\r");
 
   // Now verify CR2 in OPI DTR mode using 8D-8D-8D commands
   MPRINTF("\n\rVerifying CR2 in OPI DTR mode...\n\r");
@@ -1164,96 +1063,13 @@ void OSPI_test_8d_calibration(uint8_t keycode)
   // Clean up
   App_free(read_buffer);
 
-  // Restore flash to SPI mode (CR2 = 0x00)
-  MPRINTF("\n\rRestoring flash to SPI mode...\n\r");
-
-  // Switch to 1S-1S-1S protocol to send configuration commands
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
-
-    // Write Enable for CR2 restoration
-    T_mc80_ospi_direct_transfer write_enable_cmd = {
-      .command        = MX25_CMD_WREN,
-      .command_length = 1,
-      .address_length = 0,
-      .address        = 0,
-      .data_length    = 0,
-      .dummy_cycles   = 0,
-    };
-
-    err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-    if (err == FSP_SUCCESS)
-    {
-      // Write CR2 to restore SPI mode (value 0x00)
-      T_mc80_ospi_direct_transfer restore_cr2_cmd = {
-        .command        = MX25_CMD_WRCR2,
-        .command_length = 1,
-        .address_length = 4,
-        .address        = 0x00000000,
-        .data_length    = 1,
-        .data           = 0x00,  // Restore SPI mode
-        .dummy_cycles   = 0,
-      };
-
-      err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &restore_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-      if (err == FSP_SUCCESS)
-      {
-        MPRINTF("CR2 Restore (SPI Mode)         : SUCCESS\n\r");
-        R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-
-        // Read back CR2 to verify the restore
-        T_mc80_ospi_direct_transfer read_cr2_restore_cmd = {
-          .command        = MX25_CMD_RDCR2,
-          .command_length = 1,
-          .address_length = 4,           // 4-byte address required for RDCR2
-          .address        = 0x00000000,  // CR2 register address
-          .data_length    = 1,
-          .dummy_cycles   = 0,           // 0 dummy cycles for SPI mode RDCR2
-        };
-
-        err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_restore_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
-        if (err == FSP_SUCCESS)
-        {
-          uint8_t cr2_restore_value = (uint8_t)(read_cr2_restore_cmd.data & 0xFF);
-          MPRINTF("CR2 Restore Read Back          : SUCCESS (value: 0x%02X)\n\r", cr2_restore_value);
-
-          if (cr2_restore_value == 0x00)
-          {
-            MPRINTF("CR2 Restore Verification       : PASS (SPI mode restored)\n\r");
-          }
-          else
-          {
-            MPRINTF("CR2 Restore Verification       : FAIL (expected 0x00, got 0x%02X)\n\r", cr2_restore_value);
-          }
-        }
-        else
-        {
-          MPRINTF("CR2 Restore Read Back          : FAILED (error: 0x%X)\n\r", err);
-        }
-      }
-      else
-      {
-        MPRINTF("CR2 Restore (SPI Mode)         : FAILED (error: 0x%X)\n\r", err);
-      }
-    }
-    else
-    {
-      MPRINTF("Write Enable for CR2 Restore   : FAILED (error: 0x%X)\n\r", err);
-    }
-  }
-  else
-  {
-    MPRINTF("1S-1S-1S Protocol Set          : FAILED (error: 0x%X)\n\r", err);
-  }
-
   // Test summary
   MPRINTF("\n\r===== Test Summary =====\n\r");
   if (err == FSP_SUCCESS)
   {
     MPRINTF("Overall Result                 : PASS\n\r");
     MPRINTF("8D-8D-8D protocol is working correctly with good calibration\n\r");
+    MPRINTF("Flash remains in 8D-8D-8D mode for continued high-speed operation\n\r");
   }
   else
   {
@@ -1349,16 +1165,16 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     return;
   }
 
-  // Set 1S-1S-1S protocol for reliable pattern writing
-  MPRINTF("\n\rSetting 1S-1S-1S protocol for pattern writing...\n\r");
-  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
+  // Set 8D-8D-8D protocol for pattern writing (as required for high-speed calibration)
+  MPRINTF("\n\rSetting 8D-8D-8D protocol for pattern writing...\n\r");
+  fsp_err_t err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
   if (err == FSP_SUCCESS)
   {
-    MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
+    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
   }
   else
   {
-    MPRINTF("1S-1S-1S Protocol Set          : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
     MPRINTF("Cannot continue without protocol setup\n\r");
     MPRINTF("Press any key to continue...\n\r");
     uint8_t dummy_key;
@@ -1366,8 +1182,8 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     return;
   }
 
-  // Warning about sector erase
-  MPRINTF("\n\rWARNING: This will erase 4KB sector at address 0x00000000\n\r");
+  // Warning about sector erase and protocol switch
+  MPRINTF("\n\rWARNING: This will switch to 8D-8D-8D protocol and erase 4KB sector at address 0x00000000\n\r");
   MPRINTF("Press 'Y' to continue or any other key to cancel: ");
 
   uint8_t ch;
@@ -1503,7 +1319,7 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
       if (patterns_match)
       {
         MPRINTF("\n\rAll patterns verified successfully!\n\r");
-        MPRINTF("Ready for 8D-8D-8D calibration\n\r");
+        MPRINTF("Patterns written in 8D-8D-8D protocol - ready for calibration\n\r");
       }
       else
       {
