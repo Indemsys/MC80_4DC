@@ -27,32 +27,38 @@
 // Display sizes
 #define OSPI_DISPLAY_PREVIEW_SIZE     64  // Size for data preview display
 
+// Custom operation limits
+#define OSPI_MAX_CUSTOM_SIZE          (1024 * 1024)  // Maximum 1MB for custom operations
+#define OSPI_MIN_CUSTOM_SIZE          1               // Minimum 1 byte
+#define OSPI_MAX_FLASH_ADDRESS        0x01FFFFFF      // 32MB flash size - 1
+#define OSPI_DISPLAY_BYTES_PER_LINE   16              // Bytes per line for hex display
+
+// Data pattern types
+typedef enum
+{
+  OSPI_PATTERN_CONSTANT = 1,
+  OSPI_PATTERN_INCREMENT,
+  OSPI_PATTERN_RANDOM
+} T_ospi_pattern_type;
+
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
-void OSPI_test_read(uint8_t keycode);
-void OSPI_test_memory_mapped_write(uint8_t keycode);
-void OSPI_test_erase(uint8_t keycode);
-void OSPI_test_sector(uint8_t keycode);
-void OSPI_test_8d_calibration(uint8_t keycode);
-void OSPI_write_preamble_patterns(uint8_t keycode);
-void OSPI_test_memory_mapped_read(uint8_t keycode);
-void OSPI_test_8d_continuous_read(uint8_t keycode);
+void OSPI_test_custom_operations(uint8_t keycode);
 
 // Internal helper functions
 static fsp_err_t            _Ospi_ensure_driver_open(void);
-static void                 _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after);
 static T_mc80_ospi_protocol _Ospi_select_protocol(void);
+static uint32_t             _Ospi_get_address_input(void);
+static uint32_t             _Ospi_get_size_input(uint32_t max_size);
+static T_ospi_pattern_type  _Ospi_get_pattern_type(void);
+static uint8_t              _Ospi_get_pattern_value(void);
+static void                 _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value);
+static void                 _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address);
+static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
-  { '2', OSPI_test_read, 0 },
-  { '3', OSPI_test_memory_mapped_read, 0 },
-  { '4', OSPI_test_memory_mapped_write, 0 },
-  { '5', OSPI_test_erase, 0 },
-  { '6', OSPI_test_sector, 0 },
-  { '7', OSPI_test_8d_calibration, 0 },
-  { '8', OSPI_write_preamble_patterns, 0 },
-  { '9', OSPI_test_8d_continuous_read, 0 },
+  { '4', OSPI_test_custom_operations, 0 },
   { 'R', 0, 0 },
   { 0 }
 };
@@ -61,14 +67,7 @@ const T_VT100_Menu MENU_OSPI = {
   "OSPI Flash Testing",
   "\033[5C OSPI Flash memory testing menu\r\n"
   "\033[5C <1> - Flash information & status\r\n"
-  "\033[5C <2> - Direct read test (command-based)\r\n"
-  "\033[5C <3> - Memory-mapped read test (DMA)\r\n"
-  "\033[5C <4> - Memory-mapped write test (DMA)\r\n"
-  "\033[5C <5> - Erase sector test\r\n"
-  "\033[5C <6> - Full sector test (write/read/verify)\r\n"
-  "\033[5C <7> - 8D-8D-8D protocol & calibration test\r\n"
-  "\033[5C <8> - Write calibration preamble patterns\r\n"
-  "\033[5C <9> - 8D-8D-8D continuous read test (100ms)\r\n"
+  "\033[5C <4> - Custom operations (read/write/erase)\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
@@ -243,847 +242,6 @@ static T_mc80_ospi_protocol _Ospi_select_protocol(void)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Test OSPI read operations using direct read interface
-
-  Parameters: keycode - Input key code from VT100 terminal
-
-  Return:
------------------------------------------------------------------------------------------------------*/
-void OSPI_test_read(uint8_t keycode)
-{
-  GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== OSPI Direct Read Test =====\n\r");
-
-  // Select protocol first
-  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
-
-  // Ensure OSPI driver is open
-  fsp_err_t init_err            = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Set the selected protocol using safe switch function
-  MPRINTF("Switching to protocol safely (with flash reset)...\n\r");
-  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
-  if (protocol_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to switch protocol safely (0x%X)\n\r", protocol_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("Protocol switched successfully\n\r");
-
-  // Allocate buffer for reading data
-  uint8_t *read_buffer = App_malloc(OSPI_DIRECT_READ_SIZE);
-  if (NULL == read_buffer)
-  {
-    MPRINTF("ERROR: Failed to allocate memory for read buffer\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("Reading %d bytes from address 0x00000000 using Mc80_ospi_direct_read...\n\r", OSPI_DIRECT_READ_SIZE);
-
-  // Read data from offset 0 using direct read
-  fsp_err_t err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, OSPI_DIRECT_READ_SIZE);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("Direct read failed: 0x%X\n\r", err);
-    App_free(read_buffer);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("Direct read successful! Data from address 0x00000000 (%d bytes):\n\r", OSPI_DIRECT_READ_SIZE);
-
-  // Display the read data in hexadecimal format (16 bytes per line)
-  for (int i = 0; i < OSPI_DIRECT_READ_SIZE; i++)
-  {
-    if (i % 16 == 0)
-    {
-      MPRINTF("%04X: ", i);
-    }
-    MPRINTF("%02X ", read_buffer[i]);
-    if (i % 16 == 15)
-    {
-      MPRINTF("\n\r");
-    }
-  }
-
-  // Free allocated memory
-  App_free(read_buffer);
-
-  MPRINTF("\n\rDirect read test completed successfully.\n\r");
-  MPRINTF("Press any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
-  Description: Test OSPI write operations
-
-  Parameters: keycode - Input key code from VT100 terminal
-
-  Return:
------------------------------------------------------------------------------------------------------*/
-void OSPI_test_memory_mapped_write(uint8_t keycode)
-{
-  GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== Memory-Mapped Write Test (DMA) =====\n\r");
-
-  // Select protocol first
-  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
-
-  // Ensure OSPI driver is open
-  fsp_err_t init_err            = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Set the selected protocol with safe switching
-  MPRINTF("Setting protocol with safe switching...\n\r");
-  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
-  if (protocol_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("Protocol set successfully\n\r");
-
-  MPRINTF("WARNING: This will write test data to flash address 0x00000000\n\r");
-  MPRINTF("Press 'Y' to continue or any other key to cancel: ");
-
-  uint8_t ch;
-  WAIT_CHAR(&ch, ms_to_ticks(100000));
-  MPRINTF("%c\n\r", ch);
-
-  if (ch != 'Y' && ch != 'y')
-  {
-    MPRINTF("Write test cancelled.\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  uint8_t *write_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_WRITE_SIZE);
-  uint8_t *read_buffer  = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_WRITE_SIZE);
-
-  if (write_buffer == NULL || read_buffer == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate buffers\n\r");
-    if (write_buffer) App_free(write_buffer);
-    if (read_buffer) App_free(read_buffer);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Create test pattern with random base value and incremented sequence
-  uint32_t seed      = tx_time_get();
-  seed               = seed * 1103515245 + 12345;  // Simple LCG algorithm
-  uint8_t base_value = (uint8_t)(seed >> 16);
-
-  MPRINTF("Creating test pattern with random base: 0x%02X\n\r", base_value);
-
-  for (int i = 0; i < OSPI_MEMORY_MAPPED_WRITE_SIZE; i++)
-  {
-    write_buffer[i] = base_value + i;
-  }
-
-  MPRINTF("Test pattern created (%d bytes: 0x%02X + increment)\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE, base_value);
-
-  // Check flash status
-  T_mc80_ospi_status status;
-  fsp_err_t          err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-  if (err == FSP_SUCCESS && status.write_in_progress)
-  {
-    MPRINTF("Flash is busy, waiting...\n\r");
-    // Simple wait - in real code should have timeout
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
-  }
-
-  // Perform write
-  MPRINTF("Writing %d bytes to flash offset 0x00000000...\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE);
-  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_MEMORY_MAPPED_WRITE_SIZE);
-
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Write operation: SUCCESS\n\r");
-
-    // Wait for write completion
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
-
-    MPRINTF("Write completed\n\r");
-
-    // Read back and verify using direct read
-    MPRINTF("Reading back data using Mc80_ospi_direct_read...\n\r");
-
-    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, 0, OSPI_MEMORY_MAPPED_WRITE_SIZE);
-
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("Direct read: SUCCESS\n\r");
-
-      // Display first portion of read data
-      MPRINTF("Read data (first %d bytes):\n\r", OSPI_DISPLAY_PREVIEW_SIZE);
-      for (int i = 0; i < OSPI_DISPLAY_PREVIEW_SIZE; i++)
-      {
-        if (i % 16 == 0)
-        {
-          MPRINTF("%04X: ", i);
-        }
-        MPRINTF("%02X ", read_buffer[i]);
-        if (i % 16 == 15)
-        {
-          MPRINTF("\n\r");
-        }
-      }
-
-      // Compare data
-      bool match       = true;
-      int  error_count = 0;
-      for (int i = 0; i < OSPI_MEMORY_MAPPED_WRITE_SIZE; i++)
-      {
-        if (write_buffer[i] != read_buffer[i])
-        {
-          if (error_count == 0)
-          {
-            match = false;
-          }
-          error_count++;
-        }
-      }
-
-      if (match)
-      {
-        MPRINTF("Data verification: PASS (all %d bytes match)\n\r", OSPI_MEMORY_MAPPED_WRITE_SIZE);
-      }
-      else
-      {
-        MPRINTF("Data verification: FAIL (%d bytes differ)\n\r", error_count);
-        MPRINTF("First 16 bytes comparison:\n\r");
-        MPRINTF("Written: ");
-        for (int i = 0; i < 16; i++) MPRINTF("%02X ", write_buffer[i]);
-        MPRINTF("\n\rRead:    ");
-        for (int i = 0; i < 16; i++) MPRINTF("%02X ", read_buffer[i]);
-        MPRINTF("\n\r");
-      }
-    }
-    else
-    {
-      MPRINTF("Direct read: FAILED (0x%X)\n\r", err);
-    }
-  }
-  else
-  {
-    MPRINTF("Write operation: FAILED\n\r");
-    MPRINTF("Error code: 0x%X\n\r", err);
-  }
-
-  App_free(write_buffer);
-  App_free(read_buffer);
-
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
-  Description: Test OSPI erase operations
-
-  Parameters: keycode - Input key code from VT100 terminal
-
-  Return:
------------------------------------------------------------------------------------------------------*/
-void OSPI_test_erase(uint8_t keycode)
-{
-  GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== OSPI Erase Test =====\n\r");
-
-  // Select protocol first
-  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
-
-  // Ensure OSPI driver is open
-  fsp_err_t init_err            = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Set the selected protocol with safe switching
-  MPRINTF("Setting protocol with safe switching...\n\r");
-  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
-  if (protocol_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("Protocol set successfully\n\r");
-
-  MPRINTF("WARNING: This will erase 4KB sector at address 0x00000000\n\r");
-  MPRINTF("Press 'Y' to continue or any other key to cancel: ");
-
-  uint8_t ch;
-  WAIT_CHAR(&ch, ms_to_ticks(100000));
-  MPRINTF("%c\n\r", ch);
-
-  if (ch != 'Y' && ch != 'y')
-  {
-    MPRINTF("Erase test cancelled.\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
-  if (read_buffer == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("Erasing 4KB sector at flash offset 0x00000000...\n\r");
-  // Note: Mc80_ospi_erase() includes built-in device ready check, no need to wait here
-  fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
-
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Erase command: SUCCESS\n\r");
-
-    // Read back to verify erase
-    MPRINTF("Reading back erased data for verification...\n\r");
-
-    // Read data using memory-mapped read
-    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("Read back: SUCCESS\n\r");
-
-      // Check if all bytes are 0xFF (erased state)
-      bool erased = true;
-      for (int i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
-      {
-        if (read_buffer[i] != 0xFF)
-        {
-          erased = false;
-          break;
-        }
-      }
-
-      if (erased)
-      {
-        MPRINTF("Erase verification: PASS (all bytes are 0xFF)\n\r");
-      }
-      else
-      {
-        MPRINTF("Erase verification: FAIL (some bytes not 0xFF)\n\r");
-        MPRINTF("First 32 bytes:\n\r");
-        for (int i = 0; i < 32; i++)
-        {
-          if (i % 16 == 0)
-          {
-            MPRINTF("%04X: ", i);
-          }
-          MPRINTF("%02X ", read_buffer[i]);
-          if (i % 16 == 15)
-          {
-            MPRINTF("\n\r");
-          }
-        }
-      }
-    }
-    else
-    {
-      MPRINTF("Read back: FAILED (0x%X)\n\r", err);
-    }
-  }
-  else
-  {
-    MPRINTF("Erase command: FAILED\n\r");
-    MPRINTF("Error code: 0x%X\n\r", err);
-  }
-
-  App_free(read_buffer);
-
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
-  Description: Test full sector operations
-
-  Parameters: keycode - Input key code from VT100 terminal
-
-  Return:
------------------------------------------------------------------------------------------------------*/
-void OSPI_test_sector(uint8_t keycode)
-{
-  GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== OSPI Full Sector Test =====\n\r");
-
-  // Select protocol first
-  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
-
-  // Ensure OSPI driver is open
-  fsp_err_t init_err            = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Set the selected protocol with safe switching
-  MPRINTF("Setting protocol with safe switching...\n\r");
-  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
-  if (protocol_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("Protocol set successfully\n\r");
-
-  MPRINTF("This will test full 4KB sector erase/write/read\n\r");
-  MPRINTF("WARNING: This will modify entire 4KB sector at 0x00000000\n\r");
-  MPRINTF("Press 'Y' to continue or any other key to cancel: ");
-
-  uint8_t ch;
-  WAIT_CHAR(&ch, ms_to_ticks(100000));
-  MPRINTF("%c\n\r", ch);
-
-  if (ch != 'Y' && ch != 'y')
-  {
-    MPRINTF("Sector test cancelled.\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("This test will take several seconds...\n\r");
-  MPRINTF("Testing sector operations in chunks of %d bytes\n\r", OSPI_SECTOR_WRITE_SIZE);
-
-  uint8_t *chunk_write = (uint8_t *)App_malloc(OSPI_SECTOR_WRITE_SIZE);
-  uint8_t *chunk_read  = (uint8_t *)App_malloc(OSPI_SECTOR_WRITE_SIZE);
-
-  // Declare variables used in goto sections to avoid bypass warnings
-  T_mc80_ospi_status status;
-  uint32_t           wait_count = 0;
-  int                errors     = 0;
-
-  if (chunk_write == NULL || chunk_read == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate buffers\n\r");
-    if (chunk_write) App_free(chunk_write);
-    if (chunk_read) App_free(chunk_read);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Erase entire sector
-  MPRINTF("Erasing 4KB sector...\n\r");
-  fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + 0x00000000), OSPI_TEST_SECTOR_SIZE);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("Sector erase failed: 0x%X\n\r", err);
-    goto cleanup;
-  }
-
-  // Write and verify each chunk
-  errors = 0;
-  for (int chunk = 0; chunk < (OSPI_TEST_SECTOR_SIZE / OSPI_SECTOR_WRITE_SIZE); chunk++)
-  {
-    uint32_t address = chunk * OSPI_SECTOR_WRITE_SIZE;
-
-    // Create unique pattern for this chunk
-    for (int i = 0; i < OSPI_SECTOR_WRITE_SIZE; i++)
-    {
-      chunk_write[i] = (uint8_t)((chunk << 4) | (i & 0x0F));
-    }
-
-    // Write chunk
-    err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, chunk_write, (uint8_t *)(OSPI_BASE_ADDRESS + address), OSPI_SECTOR_WRITE_SIZE);
-    if (err != FSP_SUCCESS)
-    {
-      MPRINTF("Write chunk %d failed: 0x%X\n\r", chunk, err);
-      errors++;
-      continue;
-    }
-
-    // Read back chunk
-    memset(chunk_read, 0, OSPI_SECTOR_WRITE_SIZE);
-
-    // Read data using memory-mapped read
-    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, chunk_read, address, OSPI_SECTOR_WRITE_SIZE);
-    if (err != FSP_SUCCESS)
-    {
-      MPRINTF("Read chunk %d failed: 0x%X\n\r", chunk, err);
-      errors++;
-      continue;
-    }
-
-    // Verify chunk
-    bool chunk_ok = true;
-    for (int i = 0; i < OSPI_SECTOR_WRITE_SIZE; i++)
-    {
-      if (chunk_write[i] != chunk_read[i])
-      {
-        chunk_ok = false;
-        break;
-      }
-    }
-
-    if (chunk_ok)
-    {
-      MPRINTF("Chunk %2d (0x%04X): OK\n\r", chunk, address);
-    }
-    else
-    {
-      MPRINTF("Chunk %2d (0x%04X): FAIL\n\r", chunk, address);
-      errors++;
-    }
-  }
-
-  if (errors == 0)
-  {
-    MPRINTF("\n\rFull sector test: PASS\n\r");
-    MPRINTF("All 16 chunks (4096 bytes) verified successfully\n\r");
-  }
-  else
-  {
-    MPRINTF("\n\rFull sector test: FAIL\n\r");
-    MPRINTF("Errors in %d chunks\n\r", errors);
-  }
-
-cleanup:
-  App_free(chunk_write);
-  App_free(chunk_read);
-
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
-  Description: Test 8D-8D-8D protocol with calibration and memory-mapped read verification
-
-  Parameters: keycode - Input key code from VT100 terminal
-
-  Return:
------------------------------------------------------------------------------------------------------*/
-void OSPI_test_8d_calibration(uint8_t keycode)
-{
-  GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== 8D-8D-8D Protocol & Calibration Test =====\n\r");
-
-  // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Set 8D-8D-8D protocol for the entire test sequence
-  MPRINTF("\n\rSetting 8D-8D-8D protocol for pattern check and calibration...\n\r");
-  fsp_err_t err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot continue without protocol setup\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Check if preamble patterns exist at calibration address
-  MPRINTF("\n\rChecking preamble patterns at calibration address...\n\r");
-  uint32_t expected_patterns[4] = {
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0,  // 0xFFFF0000
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1,  // 0x000800FF
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2,  // 0x00FFF700
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3   // 0xF700F708
-  };
-
-  uint32_t read_patterns[4];
-  err                 = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t *)read_patterns, 0x00000000, 16);
-
-  bool patterns_valid = true;
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Pattern Read                   : SUCCESS\n\r");
-    for (int i = 0; i < 4; i++)
-    {
-      MPRINTF("Pattern %d: Expected=0x%08X, Found=0x%08X", i, expected_patterns[i], read_patterns[i]);
-      if (expected_patterns[i] == read_patterns[i])
-      {
-        MPRINTF(" [OK]\n\r");
-      }
-      else
-      {
-        MPRINTF(" [FAIL]\n\r");
-        patterns_valid = false;
-      }
-    }
-  }
-  else
-  {
-    MPRINTF("Pattern Read                   : FAILED (error: 0x%X)\n\r", err);
-    patterns_valid = false;
-  }
-
-  if (!patterns_valid)
-  {
-    MPRINTF("\n\rWARNING: Preamble patterns not found or invalid!\n\r");
-    MPRINTF("Please use menu option 8 to write patterns first\n\r");
-    MPRINTF("Calibration may fail without proper patterns\n\r");
-    MPRINTF("Press any key to continue anyway...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-  }
-  else
-  {
-    MPRINTF("\n\rPreamble patterns verified     : SUCCESS\n\r");
-  }
-
-  // Flash is already configured to OPI DTR mode by the safe protocol switch
-  MPRINTF("\n\rFlash configured for OPI DTR mode by protocol switch\n\r");
-
-  // Now verify CR2 in OPI DTR mode using 8D-8D-8D commands
-  MPRINTF("\n\rVerifying CR2 in OPI DTR mode...\n\r");
-  T_mc80_ospi_direct_transfer read_cr2_opi_cmd = {
-    .command        = MX25_OPI_RDCR2_STR,  // OPI DTR command for reading CR2 (0x8E8E)
-    .command_length = 2,                   // 2-byte command for OPI DTR
-    .address_length = 4,                   // 4-byte address
-    .address        = 0x00000000,          // CR2 register address
-    .data_length    = 2,                   // Read 2 bytes in OPI DTR mode
-    .dummy_cycles   = 4,                   // 4 dummy cycles for OPI DTR CR2 read
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &read_cr2_opi_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_READ);
-  if (err == FSP_SUCCESS)
-  {
-    uint8_t cr2_value = (uint8_t)(read_cr2_opi_cmd.data & 0xFF);
-    MPRINTF("CR2 Read Back (OPI DTR)        : SUCCESS (value: 0x%02X)\n\r", cr2_value);
-
-    if (cr2_value == 0x02)
-    {
-      MPRINTF("CR2 Verification               : PASS (OPI DTR confirmed)\n\r");
-    }
-    else
-    {
-      MPRINTF("CR2 Verification               : FAIL (expected 0x02, got 0x%02X)\n\r", cr2_value);
-      MPRINTF("Flash may not be in OPI DTR mode\n\r");
-    }
-  }
-  else
-  {
-    MPRINTF("CR2 Read Back (OPI DTR)        : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("This may indicate flash is not in OPI DTR mode\n\r");
-  }
-
-  // Test 8D-8D-8D read before calibration
-  MPRINTF("\n\rTesting 8D-8D-8D read before calibration...\n\r");
-  uint8_t test_read_buffer[16];
-  err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, test_read_buffer, 0x00000000, 16);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("8D-8D-8D Pre-calibration Read  : SUCCESS\n\r");
-    MPRINTF("Read data: ");
-    for (int i = 0; i < 16; i++)
-    {
-      MPRINTF("%02X ", test_read_buffer[i]);
-      if ((i + 1) % 8 == 0) MPRINTF("\n\r           ");
-    }
-    MPRINTF("\n\r");
-  }
-  else
-  {
-    MPRINTF("8D-8D-8D Pre-calibration Read  : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Note: Read failure before calibration is expected\n\r");
-    MPRINTF("      Calibration should improve read reliability\n\r");
-  }
-
-  // Perform calibration
-  MPRINTF("\n\rPerforming automatic calibration...\n\r");
-  T_mc80_ospi_calibration_data calibration_data;
-  err = Mc80_ospi_auto_calibrate(g_mc80_ospi.p_ctrl, &calibration_data);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Auto Calibration               : SUCCESS\n\r");
-
-    // Display detailed calibration results
-    MPRINTF("\n\r===== Calibration Results =====\n\r");
-    MPRINTF("Channel                        : %d\n\r", calibration_data.channel);
-
-    MPRINTF("\n\rBefore Calibration:\n\r");
-    MPRINTF("WRAPCFG DQS Shift              : 0x%08X\n\r", calibration_data.before_calibration.wrapcfg_dssft);
-    MPRINTF("LIOCFG SDR Sample Shift        : 0x%08X\n\r", calibration_data.before_calibration.liocfg_sdrsmpsft);
-    MPRINTF("LIOCFG DDR Sample Extension    : 0x%08X\n\r", calibration_data.before_calibration.liocfg_ddrsmpex);
-    MPRINTF("CASTTCS Status                 : 0x%08X\n\r", calibration_data.before_calibration.casttcs_value);
-
-    MPRINTF("\n\rAfter Calibration:\n\r");
-    MPRINTF("WRAPCFG DQS Shift              : 0x%08X\n\r", calibration_data.after_calibration.wrapcfg_dssft);
-    MPRINTF("LIOCFG SDR Sample Shift        : 0x%08X\n\r", calibration_data.after_calibration.liocfg_sdrsmpsft);
-    MPRINTF("LIOCFG DDR Sample Extension    : 0x%08X\n\r", calibration_data.after_calibration.liocfg_ddrsmpex);
-    MPRINTF("CASTTCS Status                 : 0x%08X\n\r", calibration_data.after_calibration.casttcs_value);
-
-    // Analysis of changes
-    if (calibration_data.before_calibration.wrapcfg_dssft != calibration_data.after_calibration.wrapcfg_dssft)
-    {
-      MPRINTF("\n\rDQS Shift Changed              : 0x%08X -> 0x%08X\n\r",
-              calibration_data.before_calibration.wrapcfg_dssft,
-              calibration_data.after_calibration.wrapcfg_dssft);
-    }
-    else
-    {
-      MPRINTF("\n\rDQS Shift                      : No change (0x%08X)\n\r", calibration_data.after_calibration.wrapcfg_dssft);
-    }
-
-    if (calibration_data.after_calibration.casttcs_value != 0)
-    {
-      MPRINTF("Calibration Status             : Active (0x%08X)\n\r", calibration_data.after_calibration.casttcs_value);
-    }
-    else
-    {
-      MPRINTF("Calibration Status             : No active calibration\n\r");
-    }
-  }
-  else
-  {
-    MPRINTF("Auto Calibration               : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Warning: Calibration failed, memory-mapped reads may be unreliable\n\r");
-  }
-
-  // Test memory-mapped read after calibration using DMA
-  MPRINTF("\n\rTesting memory-mapped read after calibration...\n\r");
-
-  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
-  if (read_buffer == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Perform memory-mapped read using DMA
-  err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Memory-mapped Read             : SUCCESS\n\r");
-
-    // Display first portion of the read for verification
-    MPRINTF("\n\rRead Data (first %d bytes):\n\r", OSPI_DISPLAY_PREVIEW_SIZE);
-    for (int i = 0; i < OSPI_DISPLAY_PREVIEW_SIZE; i++)
-    {
-      if (i % 16 == 0)
-      {
-        MPRINTF("%04X: ", i);
-      }
-      MPRINTF("%02X ", read_buffer[i]);
-      if (i % 16 == 15)
-      {
-        MPRINTF("\n\r");
-      }
-    }
-
-    MPRINTF("\n\r8D-8D-8D Calibration Quality   : GOOD (memory-mapped read successful)\n\r");
-  }
-  else
-  {
-    MPRINTF("Memory-mapped Read             : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("8D-8D-8D Calibration Quality   : POOR - calibration may have failed\n\r");
-  }
-
-  // Clean up
-  App_free(read_buffer);
-
-  // Test summary
-  MPRINTF("\n\r===== Test Summary =====\n\r");
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Overall Result                 : PASS\n\r");
-    MPRINTF("8D-8D-8D protocol is working correctly with good calibration\n\r");
-    MPRINTF("Flash remains in 8D-8D-8D mode for continued high-speed operation\n\r");
-  }
-  else
-  {
-    MPRINTF("Overall Result                 : FAIL\n\r");
-    MPRINTF("8D-8D-8D protocol has calibration issues\n\r");
-    MPRINTF("Recommendation: Check signal integrity and timing settings\n\r");
-  }
-
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
   Description: Ensure OSPI driver is open, open it if not already open
 
   Parameters: None
@@ -1141,18 +299,19 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
   }
 }
 
+
 /*-----------------------------------------------------------------------------------------------------
-  Description: Write preamble patterns to flash for calibration
+  Description: Custom OSPI operations menu - read, write, erase with user-defined parameters
 
   Parameters: keycode - Input key code from VT100 terminal
 
   Return:
 -----------------------------------------------------------------------------------------------------*/
-void OSPI_write_preamble_patterns(uint8_t keycode)
+void OSPI_test_custom_operations(uint8_t keycode)
 {
   GET_MCBL;
   MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== Write Preamble Patterns =====\n\r");
+  MPRINTF(" ===== Custom OSPI Operations =====\n\r");
 
   // Ensure OSPI driver is open
   fsp_err_t init_err = _Ospi_ensure_driver_open();
@@ -1165,331 +324,541 @@ void OSPI_write_preamble_patterns(uint8_t keycode)
     return;
   }
 
-  // Set 8D-8D-8D protocol for pattern writing (as required for high-speed calibration)
-  MPRINTF("\n\rSetting 8D-8D-8D protocol for pattern writing...\n\r");
-  fsp_err_t err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-  if (err == FSP_SUCCESS)
+  while (1)
   {
-    MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");
-  }
-  else
-  {
-    MPRINTF("8D-8D-8D Protocol Set          : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot continue without protocol setup\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
+    MPRINTF("\n\r===== Custom Operations Menu =====\n\r");
+    MPRINTF("  <1> - Read from address\n\r");
+    MPRINTF("  <2> - Write to address\n\r");
+    MPRINTF("  <3> - Erase from address\n\r");
+    MPRINTF("  <4> - Switch protocol\n\r");
+    MPRINTF("  <R> - Return to main menu\n\r");
+    MPRINTF("Choice: ");
 
-  // Warning about sector erase and protocol switch
-  MPRINTF("\n\rWARNING: This will switch to 8D-8D-8D protocol and erase 4KB sector at address 0x00000000\n\r");
-  MPRINTF("Press 'Y' to continue or any other key to cancel: ");
+    uint8_t operation;
+    WAIT_CHAR(&operation, ms_to_ticks(30000));
+    MPRINTF("%c\n\r", operation);
 
-  uint8_t ch;
-  WAIT_CHAR(&ch, ms_to_ticks(100000));
-  MPRINTF("%c\n\r", ch);
-
-  if (ch != 'Y' && ch != 'y')
-  {
-    MPRINTF("Pattern write cancelled.\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Default preamble patterns
-  uint32_t patterns[4] = {
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_0,  // 0xFFFF0000
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_1,  // 0x000800FF
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_2,  // 0x00FFF700
-    MC80_OSPI_DEFAULT_PREAMBLE_PATTERN_3   // 0xF700F708
-  };
-
-  MPRINTF("\n\rPreamble patterns to write:\n\r");
-  for (int i = 0; i < 4; i++)
-  {
-    MPRINTF("Pattern %d                      : 0x%08X\n\r", i, patterns[i]);
-  }
-
-  // Erase sector before writing patterns
-  uint32_t calibration_address = 0x00000000;  // Flash physical address (not XIP)
-  MPRINTF("\n\rErasing sector at address 0x%08X...\n\r", calibration_address);
-
-  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), OSPI_TEST_SECTOR_SIZE);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Sector Erase                   : SUCCESS\n\r");
-
-    // Wait for erase completion
-    MPRINTF("Waiting for erase completion...\n\r");
-    T_mc80_ospi_status status;
-    uint32_t           wait_count = 0;
-    do
+    switch (operation)
     {
-      R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-      wait_count += 10;
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-
-      if (wait_count % 100 == 0)
+      case '1': // Read operation
       {
-        MPRINTF("Waited %u ms...\n\r", wait_count);
-      }
+        MPRINTF("\n\r===== Read Operation =====\n\r");
 
-      if (wait_count > 5000)  // 5 second timeout
-      {
-        MPRINTF("Erase timeout!\n\r");
-        break;
-      }
-    } while (status.write_in_progress);
-
-    if (!status.write_in_progress)
-    {
-      MPRINTF("Erase completed in %u ms\n\r", wait_count);
-    }
-    else
-    {
-      MPRINTF("WARNING: Erase may not have completed\n\r");
-    }
-  }
-  else
-  {
-    MPRINTF("Sector Erase                   : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Cannot continue without erasing sector\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Write patterns to calibration address
-  MPRINTF("\n\rWriting patterns to address 0x%08X...\n\r", calibration_address);
-
-  // Check flash status before write
-  T_mc80_ospi_status status;
-  err = Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-  if (err == FSP_SUCCESS && status.write_in_progress)
-  {
-    MPRINTF("Flash is busy, waiting...\n\r");
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
-  }
-
-  // Write 16 bytes (4 x 32-bit patterns) to flash
-  err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, (uint8_t *)patterns, (uint8_t *)(OSPI_BASE_ADDRESS + calibration_address), 16);
-  if (err == FSP_SUCCESS)
-  {
-    MPRINTF("Preamble Patterns Write        : SUCCESS\n\r");
-
-    // Wait for write completion
-    do
-    {
-      R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
-      Mc80_ospi_status_get(g_mc80_ospi.p_ctrl, &status);
-    } while (status.write_in_progress);
-
-    MPRINTF("Write completed\n\r");
-
-    // Verify written data by reading it back
-    MPRINTF("\n\rVerifying written patterns...\n\r");
-    uint32_t read_patterns[4];
-    err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, (uint8_t *)read_patterns, calibration_address, 16);
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("Pattern Verification           : SUCCESS\n\r");
-      bool patterns_match = true;
-      for (int i = 0; i < 4; i++)
-      {
-        MPRINTF("Pattern %d: Written=0x%08X, Read=0x%08X", i, patterns[i], read_patterns[i]);
-        if (patterns[i] == read_patterns[i])
+        // Get parameters from user
+        uint32_t address = _Ospi_get_address_input();
+        if (address > OSPI_MAX_FLASH_ADDRESS)
         {
-          MPRINTF(" OK\n\r");
+          MPRINTF("ERROR: Address exceeds flash size\n\r");
+          break;
+        }
+
+        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
+        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
+          break;
+        }
+
+        // Allocate buffer
+        uint8_t *read_buffer = (uint8_t *)App_malloc(size);
+        if (read_buffer == NULL)
+        {
+          MPRINTF("ERROR: Failed to allocate %u bytes for read buffer\n\r", size);
+          break;
+        }
+
+        // Clear buffer
+        memset(read_buffer, 0x00, size);
+
+        // Measure time and perform read
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, address, size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Read operation                : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", address);
+          MPRINTF("Size                          : %u bytes\n\r", size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Transfer speed                : ");
+          _Ospi_display_speed(size, elapsed_us);
+
+          // Display data
+          _Ospi_display_data(read_buffer, size, address);
         }
         else
         {
-          MPRINTF(" ERR\n\r");
-          patterns_match = false;
+          MPRINTF("Read operation                : FAILED (error: 0x%X)\n\r", err);
         }
+
+        App_free(read_buffer);
+        break;
       }
 
-      if (patterns_match)
+      case '2': // Write operation
       {
-        MPRINTF("\n\rAll patterns verified successfully!\n\r");
-        MPRINTF("Patterns written in 8D-8D-8D protocol - ready for calibration\n\r");
-      }
-      else
-      {
-        MPRINTF("\n\rPattern verification FAILED!\n\r");
-      }
-    }
-    else
-    {
-      MPRINTF("Pattern Verification           : FAILED (error: 0x%X)\n\r", err);
-    }
-  }
-  else
-  {
-    MPRINTF("Preamble Patterns Write        : FAILED (error: 0x%X)\n\r", err);
-  }
+        MPRINTF("\n\r===== Write Operation =====\n\r");
 
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        // Get parameters from user
+        uint32_t address = _Ospi_get_address_input();
+        if (address > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Address exceeds flash size\n\r");
+          break;
+        }
+
+        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
+        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
+          break;
+        }
+
+        // Get pattern type and value
+        T_ospi_pattern_type pattern_type = _Ospi_get_pattern_type();
+        uint8_t pattern_value = 0;
+        if (pattern_type == OSPI_PATTERN_CONSTANT || pattern_type == OSPI_PATTERN_INCREMENT)
+        {
+          pattern_value = _Ospi_get_pattern_value();
+        }
+
+        // Allocate buffer
+        uint8_t *write_buffer = (uint8_t *)App_malloc(size);
+        if (write_buffer == NULL)
+        {
+          MPRINTF("ERROR: Failed to allocate %u bytes for write buffer\n\r", size);
+          break;
+        }
+
+        // Generate pattern
+        _Ospi_generate_pattern(write_buffer, size, pattern_type, pattern_value);
+
+        MPRINTF("Generated pattern preview:\n\r");
+        uint32_t preview_size = (size < 64) ? size : 64;
+        _Ospi_display_data(write_buffer, preview_size, 0);
+
+        // Measure time and perform write
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Write operation               : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", address);
+          MPRINTF("Size                          : %u bytes\n\r", size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Transfer speed                : ");
+          _Ospi_display_speed(size, elapsed_us);
+        }
+        else
+        {
+          MPRINTF("Write operation               : FAILED (error: 0x%X)\n\r", err);
+        }
+
+        App_free(write_buffer);
+        break;
+      }
+
+      case '3': // Erase operation
+      {
+        MPRINTF("\n\r===== Erase Operation =====\n\r");
+
+        // Get parameters from user
+        uint32_t address = _Ospi_get_address_input();
+        if (address > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Address exceeds flash size\n\r");
+          break;
+        }
+
+        uint32_t size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
+        if (size == 0 || (address + size - 1) > OSPI_MAX_FLASH_ADDRESS)
+        {
+          MPRINTF("ERROR: Invalid size or address range exceeds flash\n\r");
+          break;
+        }
+
+        MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", size, address);
+        MPRINTF("Continue? (Y/N): ");
+
+        uint8_t confirm;
+        WAIT_CHAR(&confirm, ms_to_ticks(10000));
+        MPRINTF("%c\n\r", confirm);
+
+        if (confirm != 'Y' && confirm != 'y')
+        {
+          MPRINTF("Erase operation cancelled\n\r");
+          break;
+        }
+
+        // Measure time and perform erase
+        T_sys_timestump start_time;
+        Get_hw_timestump(&start_time);
+        fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + address), size);
+        T_sys_timestump end_time;
+        Get_hw_timestump(&end_time);
+        uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Erase operation               : SUCCESS\n\r");
+          MPRINTF("Address                       : 0x%08X\n\r", address);
+          MPRINTF("Size                          : %u bytes\n\r", size);
+          MPRINTF("Time elapsed                  : %u us\n\r", elapsed_us);
+          MPRINTF("Erase speed                   : ");
+          _Ospi_display_speed(size, elapsed_us);
+        }
+        else
+        {
+          MPRINTF("Erase operation               : FAILED (error: 0x%X)\n\r", err);
+        }
+        break;
+      }
+
+      case '4': // Switch protocol
+      {
+        MPRINTF("\n\r===== Protocol Switch =====\n\r");
+        T_mc80_ospi_protocol new_protocol = _Ospi_select_protocol();
+
+        MPRINTF("Switching protocol...\n\r");
+        fsp_err_t err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, new_protocol);
+        if (err == FSP_SUCCESS)
+        {
+          MPRINTF("Protocol switch               : SUCCESS\n\r");
+        }
+        else
+        {
+          MPRINTF("Protocol switch               : FAILED (error: 0x%X)\n\r", err);
+        }
+        break;
+      }
+
+      case 'R':
+      case 'r':
+        return;
+
+      default:
+        MPRINTF("Invalid choice\n\r");
+        break;
+    }
+  }
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Test memory-mapped read function by reading and displaying data from flash
+  Description: Get memory address input from user
 
-  Parameters: keycode - Input key code from VT100 terminal
+  Parameters: None
 
-  Return:
+  Return: Address value entered by user
 -----------------------------------------------------------------------------------------------------*/
-void OSPI_test_memory_mapped_read(uint8_t keycode)
+static uint32_t _Ospi_get_address_input(void)
 {
   GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== Memory-Mapped Read Test =====\n\r");
+  uint32_t address = 0;
 
-  // Select protocol first
-  T_mc80_ospi_protocol protocol = _Ospi_select_protocol();
+  MPRINTF("Enter address (hex, e.g., 1000 for 0x1000): 0x");
 
-  // Ensure OSPI driver is open
-  fsp_err_t init_err            = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
+  char input_buffer[16];
+  memset(input_buffer, 0, sizeof(input_buffer));
+
+  uint8_t pos = 0;
+  while (pos < 15)
   {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
+    uint8_t key;
+    WAIT_CHAR(&key, ms_to_ticks(30000));
 
-  // Set the selected protocol with safe switching
-  MPRINTF("Setting protocol with safe switching...\n\r");
-  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, protocol);
-  if (protocol_err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set protocol (0x%X)\n\r", protocol_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("Protocol set successfully\n\r");
-
-  // Allocate buffers for three reads
-  uint8_t *read_buffer1 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
-  uint8_t *read_buffer2 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
-  uint8_t *read_buffer3 = (uint8_t *)App_malloc(OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  if (read_buffer1 == NULL || read_buffer2 == NULL || read_buffer3 == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate read buffers\n\r");
-    if (read_buffer1) App_free(read_buffer1);
-    if (read_buffer2) App_free(read_buffer2);
-    if (read_buffer3) App_free(read_buffer3);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Clear buffers before reading
-  memset(read_buffer1, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
-  memset(read_buffer2, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
-  memset(read_buffer3, 0x00, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  MPRINTF("Reading first %d bytes from flash address 0x00000000...\n\r", OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  // Perform first memory-mapped read using DMA
-  fsp_err_t err1 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer1, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  if (err1 != FSP_SUCCESS)
-  {
-    MPRINTF("First memory-mapped read      : FAILED (error: 0x%X)\n\r", err1);
-    App_free(read_buffer1);
-    App_free(read_buffer2);
-    App_free(read_buffer3);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("First read                    : SUCCESS\n\r");
-
-  // Perform second memory-mapped read for comparison using DMA
-  fsp_err_t err2 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer2, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  if (err2 != FSP_SUCCESS)
-  {
-    MPRINTF("Second memory-mapped read     : FAILED (error: 0x%X)\n\r", err2);
-    App_free(read_buffer1);
-    App_free(read_buffer2);
-    App_free(read_buffer3);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("Second read                   : SUCCESS\n\r");
-
-  // Perform third memory-mapped read for comparison using DMA
-  fsp_err_t err3 = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer3, 0x00000000, OSPI_MEMORY_MAPPED_READ_SIZE);
-
-  if (err3 != FSP_SUCCESS)
-  {
-    MPRINTF("Third memory-mapped read      : FAILED (error: 0x%X)\n\r", err3);
-    App_free(read_buffer1);
-    App_free(read_buffer2);
-    App_free(read_buffer3);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("Third read                    : SUCCESS\n\r");
-
-  // Compare all three reads
-  bool reads_match = true;
-  for (uint32_t i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i++)
-  {
-    if (read_buffer1[i] != read_buffer2[i] || read_buffer1[i] != read_buffer3[i])
+    if (key == '\r' || key == '\n')
     {
-      reads_match = false;
       break;
+    }
+    else if (key == '\b' || key == 0x7F) // Backspace
+    {
+      if (pos > 0)
+      {
+        pos--;
+        input_buffer[pos] = 0;
+        MPRINTF("\b \b");
+      }
+    }
+    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f'))
+    {
+      input_buffer[pos] = key;
+      pos++;
+      MPRINTF("%c", key);
     }
   }
 
-  if (reads_match)
+  MPRINTF("\n\r");
+
+  // Convert hex string to number
+  for (uint8_t i = 0; i < pos; i++)
   {
-    MPRINTF("Data consistency check        : OK (all three reads match)\n\r");
-  }
-  else
-  {
-    MPRINTF("Data consistency check        : PROBLEM (reads do not match)\n\r");
+    address = address * 16;
+    char c = input_buffer[i];
+    if (c >= '0' && c <= '9')
+    {
+      address += c - '0';
+    }
+    else if (c >= 'A' && c <= 'F')
+    {
+      address += c - 'A' + 10;
+    }
+    else if (c >= 'a' && c <= 'f')
+    {
+      address += c - 'a' + 10;
+    }
   }
 
-  MPRINTF("\n\rData read from flash:\n\r");
+  return address;
+}
 
-  // Display data in hex format (16 bytes per line) from first read
-  for (uint32_t i = 0; i < OSPI_MEMORY_MAPPED_READ_SIZE; i += 16)
+/*-----------------------------------------------------------------------------------------------------
+  Description: Get size input from user
+
+  Parameters: max_size - Maximum allowed size
+
+  Return: Size value entered by user
+-----------------------------------------------------------------------------------------------------*/
+static uint32_t _Ospi_get_size_input(uint32_t max_size)
+{
+  GET_MCBL;
+  uint32_t size = 0;
+
+  MPRINTF("Enter size in bytes (decimal, max %u): ", max_size);
+
+  char input_buffer[16];
+  memset(input_buffer, 0, sizeof(input_buffer));
+
+  uint8_t pos = 0;
+  while (pos < 15)
+  {
+    uint8_t key;
+    WAIT_CHAR(&key, ms_to_ticks(30000));
+
+    if (key == '\r' || key == '\n')
+    {
+      break;
+    }
+    else if (key == '\b' || key == 0x7F) // Backspace
+    {
+      if (pos > 0)
+      {
+        pos--;
+        input_buffer[pos] = 0;
+        MPRINTF("\b \b");
+      }
+    }
+    else if (key >= '0' && key <= '9')
+    {
+      input_buffer[pos] = key;
+      pos++;
+      MPRINTF("%c", key);
+    }
+  }
+
+  MPRINTF("\n\r");
+
+  // Convert decimal string to number
+  for (uint8_t i = 0; i < pos; i++)
+  {
+    size = size * 10 + (input_buffer[i] - '0');
+  }
+
+  if (size > max_size)
+  {
+    MPRINTF("WARNING: Size %u exceeds maximum %u, using maximum\n\r", size, max_size);
+    size = max_size;
+  }
+
+  return size;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Get data pattern type from user
+
+  Parameters: None
+
+  Return: Selected pattern type
+-----------------------------------------------------------------------------------------------------*/
+static T_ospi_pattern_type _Ospi_get_pattern_type(void)
+{
+  GET_MCBL;
+  MPRINTF("Select data pattern:\n\r");
+  MPRINTF("  <1> - Constant value\n\r");
+  MPRINTF("  <2> - Incrementing values\n\r");
+  MPRINTF("  <3> - Random values\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t key;
+  WAIT_CHAR(&key, ms_to_ticks(30000));
+  MPRINTF("%c\n\r", key);
+
+  switch (key)
+  {
+    case '1':
+      return OSPI_PATTERN_CONSTANT;
+    case '2':
+      return OSPI_PATTERN_INCREMENT;
+    case '3':
+      return OSPI_PATTERN_RANDOM;
+    default:
+      MPRINTF("Invalid choice, using constant pattern\n\r");
+      return OSPI_PATTERN_CONSTANT;
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Get pattern value from user
+
+  Parameters: None
+
+  Return: Pattern value entered by user
+-----------------------------------------------------------------------------------------------------*/
+static uint8_t _Ospi_get_pattern_value(void)
+{
+  GET_MCBL;
+  uint32_t value = 0;
+
+  MPRINTF("Enter pattern value (hex, e.g., FF): 0x");
+
+  char input_buffer[4];
+  memset(input_buffer, 0, sizeof(input_buffer));
+
+  uint8_t pos = 0;
+  while (pos < 2)
+  {
+    uint8_t key;
+    WAIT_CHAR(&key, ms_to_ticks(30000));
+
+    if (key == '\r' || key == '\n')
+    {
+      break;
+    }
+    else if (key == '\b' || key == 0x7F) // Backspace
+    {
+      if (pos > 0)
+      {
+        pos--;
+        input_buffer[pos] = 0;
+        MPRINTF("\b \b");
+      }
+    }
+    else if ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'F') || (key >= 'a' && key <= 'f'))
+    {
+      input_buffer[pos] = key;
+      pos++;
+      MPRINTF("%c", key);
+    }
+  }
+
+  MPRINTF("\n\r");
+
+  // Convert hex string to number
+  for (uint8_t i = 0; i < pos; i++)
+  {
+    value = value * 16;
+    char c = input_buffer[i];
+    if (c >= '0' && c <= '9')
+    {
+      value += c - '0';
+    }
+    else if (c >= 'A' && c <= 'F')
+    {
+      value += c - 'A' + 10;
+    }
+    else if (c >= 'a' && c <= 'f')
+    {
+      value += c - 'a' + 10;
+    }
+  }
+
+  return (uint8_t)value;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Generate data pattern in buffer
+
+  Parameters: buffer - Buffer to fill with pattern
+              size - Size of buffer
+              type - Pattern type
+              base_value - Base value for pattern
+
+  Return:
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value)
+{
+  switch (type)
+  {
+    case OSPI_PATTERN_CONSTANT:
+      memset(buffer, base_value, size);
+      break;
+
+    case OSPI_PATTERN_INCREMENT:
+      for (uint32_t i = 0; i < size; i++)
+      {
+        buffer[i] = (uint8_t)(base_value + i);
+      }
+      break;
+
+    case OSPI_PATTERN_RANDOM:
+    {
+      // Use simple LFSR for pseudo-random generation
+      uint32_t lfsr = 0xACE1u; // Seed value
+      for (uint32_t i = 0; i < size; i++)
+      {
+        // 16-bit LFSR with taps at positions 16, 15, 13, 4
+        uint32_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1u;
+        lfsr = (lfsr >> 1) | (bit << 15);
+        buffer[i] = (uint8_t)(lfsr & 0xFF);
+      }
+      break;
+    }
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Display data in hex format with ASCII representation
+
+  Parameters: data - Data buffer to display
+              size - Size of data to display
+              start_address - Starting address for display offset
+
+  Return:
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address)
+{
+  GET_MCBL;
+
+  // Limit display size to prevent excessive output
+  uint32_t display_size = size;
+  if (display_size > 512)
+  {
+    display_size = 512;
+    MPRINTF("Displaying first 512 bytes of %u total bytes:\n\r", size);
+  }
+
+  MPRINTF("\n\rData contents:\n\r");
+
+  // Display data in hex format (16 bytes per line)
+  for (uint32_t i = 0; i < display_size; i += OSPI_DISPLAY_BYTES_PER_LINE)
   {
     // Print address
-    MPRINTF("0x%08X: ", i);
+    MPRINTF("0x%08X: ", start_address + i);
 
     // Print hex values
-    for (uint32_t j = 0; j < 16; j++)
+    for (uint32_t j = 0; j < OSPI_DISPLAY_BYTES_PER_LINE; j++)
     {
-      if (i + j < OSPI_MEMORY_MAPPED_READ_SIZE)
+      if (i + j < display_size)
       {
-        MPRINTF("%02X ", read_buffer1[i + j]);
+        MPRINTF("%02X ", data[i + j]);
       }
       else
       {
@@ -1500,11 +869,11 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
     MPRINTF(" | ");
 
     // Print ASCII representation
-    for (uint32_t j = 0; j < 16; j++)
+    for (uint32_t j = 0; j < OSPI_DISPLAY_BYTES_PER_LINE; j++)
     {
-      if (i + j < OSPI_MEMORY_MAPPED_READ_SIZE)
+      if (i + j < display_size)
       {
-        uint8_t byte_val = read_buffer1[i + j];
+        uint8_t byte_val = data[i + j];
         if (byte_val >= 32 && byte_val <= 126)  // Printable ASCII
         {
           MPRINTF("%c", byte_val);
@@ -1519,542 +888,38 @@ void OSPI_test_memory_mapped_read(uint8_t keycode)
     MPRINTF("\n\r");
   }
 
-  // Free allocated buffers
-  App_free(read_buffer1);
-  App_free(read_buffer2);
-  App_free(read_buffer3);
-
-  MPRINTF("\n\rPress any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+  if (size > display_size)
+  {
+    MPRINTF("... (%u more bytes not shown)\n\r", size - display_size);
+  }
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: 8D-8D-8D continuous read test with memory-mapped DMA and register analysis
+  Description: Display operation speed information
 
-  This function demonstrates continuous high-speed reading from OSPI flash in 8D-8D-8D mode using
-  memory-mapped DMA transfers. It configures the flash to OPI DTR mode, switches the controller
-  protocol, captures register snapshots before/after protocol switch, and performs continuous
-  memory-mapped reading with display refresh every 100ms.
-
-  Features:
-  - Automatic flash configuration to OPI DTR mode (CR2 = 0x02)
-  - Controller protocol switch to 8D-8D-8D with register snapshot analysis
-  - High-performance memory-mapped DMA reading (64 bytes per cycle)
-  - Register difference analysis showing protocol switch effects
-  - Real-time display update every 100ms
-  - User can exit by pressing any key
-
-  Technical Implementation:
-  - Uses Mc80_ospi_memory_mapped_read() for optimal DMA performance
-  - Captures complete OSPI register snapshots before/after protocol switch
-  - Analyzes key register changes (LIOCFGCS, CMCFGCS, WRAPCFG, etc.)
-  - Provides timing analysis of protocol switching
-
-  Parameters:
-    keycode - Menu key pressed (unused)
+  Parameters: bytes - Number of bytes transferred
+              time_us - Time elapsed in microseconds
 
   Return:
-    void
 -----------------------------------------------------------------------------------------------------*/
-
-void OSPI_test_8d_continuous_read(uint8_t keycode)
+static void _Ospi_display_speed(uint32_t bytes, uint32_t time_us)
 {
   GET_MCBL;
-  MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== 8D-8D-8D Continuous Read Test =====\n\r");
 
-  // Ensure OSPI driver is open
-  fsp_err_t init_err = _Ospi_ensure_driver_open();
-  if (init_err != FSP_SUCCESS)
+  if (time_us > 0)
   {
-    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
+    uint64_t speed_bps_64 = ((uint64_t)bytes * 1000000ul) / time_us;  // Bytes per second (64-bit calculation)
+    uint32_t speed_bps = (uint32_t)speed_bps_64;                      // Bytes per second
+    uint32_t speed_kbps = speed_bps / 1024;                           // Kilobytes per second (integer part)
+    uint32_t speed_kbps_frac = ((speed_bps % 1024) * 1000) / 1024;    // Fractional part (3 digits)
+    uint32_t time_ms = time_us / 1000;                                // Convert to milliseconds for display
+    uint32_t time_us_frac = time_us % 1000;                           // Microseconds fractional part
 
-  // Set 1S-1S-1S protocol for flash configuration
-  MPRINTF("Setting 1S-1S-1S protocol for flash configuration...\n\r");
-  fsp_err_t err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_1S_1S_1S);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set 1S-1S-1S protocol (0x%X)\n\r", err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("1S-1S-1S Protocol Set          : SUCCESS\n\r");
-
-  // Configure flash to OPI DTR mode
-  MPRINTF("Configuring flash for OPI DTR mode...\n\r");
-
-  // Write Enable for CR2 configuration
-  T_mc80_ospi_direct_transfer write_enable_cmd = {
-    .command        = MX25_CMD_WREN,
-    .command_length = 1,
-    .address_length = 0,
-    .address        = 0,
-    .data_length    = 0,
-    .dummy_cycles   = 0,
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Write Enable failed (0x%X)\n\r", err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Write CR2 to enable OPI DTR mode (value 0x02)
-  T_mc80_ospi_direct_transfer write_cr2_cmd = {
-    .command        = MX25_CMD_WRCR2,
-    .command_length = 1,
-    .address_length = 4,           // 4-byte address required for CR2
-    .address        = 0x00000000,  // CR2 address
-    .data_length    = 1,
-    .data           = 0x02,        // Enable OPI DTR mode
-    .dummy_cycles   = 0,
-  };
-
-  err = Mc80_ospi_direct_transfer(g_mc80_ospi.p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: CR2 Write failed (0x%X)\n\r", err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  // Wait for flash mode switch
-  R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
-  MPRINTF("CR2 Write (OPI DTR Enable)     : SUCCESS\n\r");
-
-  // Capture register snapshot BEFORE 8D-8D-8D protocol switch
-  T_mc80_ospi_register_snapshot snapshot_before = { 0 };
-  MPRINTF("Capturing register snapshot before 8D-8D-8D switch...\n\r");
-  err = Mc80_ospi_capture_register_snapshot(g_mc80_ospi.p_ctrl, &snapshot_before);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("WARNING: Failed to capture snapshot before switch (0x%X)\n\r", err);
+    MPRINTF("%u.%03u KB/s (%u bytes/s)\n\r", speed_kbps, speed_kbps_frac, speed_bps);
+    MPRINTF("Time                          : %u.%03u ms (%u us)\n\r", time_ms, time_us_frac, time_us);
   }
   else
   {
-    MPRINTF("Before Snapshot Captured       : SUCCESS\n\r");
-  }
-
-  // Switch to 8D-8D-8D protocol
-  MPRINTF("Setting 8D-8D-8D protocol...\n\r");
-  err = Mc80_ospi_spi_protocol_set(g_mc80_ospi.p_ctrl, MC80_OSPI_PROTOCOL_8D_8D_8D);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("ERROR: Failed to set 8D-8D-8D protocol (0x%X)\n\r", err);
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-  MPRINTF("8D-8D-8D Protocol Set          : SUCCESS\n\r");  // Capture register snapshot AFTER 8D-8D-8D protocol switch
-  T_mc80_ospi_register_snapshot snapshot_after = { 0 };
-  MPRINTF("Capturing register snapshot after 8D-8D-8D switch...\n\r");
-  err = Mc80_ospi_capture_register_snapshot(g_mc80_ospi.p_ctrl, &snapshot_after);
-  if (err != FSP_SUCCESS)
-  {
-    MPRINTF("WARNING: Failed to capture snapshot after switch (0x%X)\n\r", err);
-  }
-  else
-  {
-    MPRINTF("After Snapshot Captured        : SUCCESS\n\r");
-  }
-
-  // Полный анализ изменений всех регистров OSPI
-  _Ospi_display_register_differences(&snapshot_before, &snapshot_after);
-
-  MPRINTF("\n\rPress any key to start continuous reading...\n\r");
-  uint8_t start_key;
-  WAIT_CHAR(&start_key, ms_to_ticks(100000));
-
-  // Allocate buffer for read data
-  uint8_t *read_buffer = (uint8_t *)App_malloc(OSPI_CONTINUOUS_READ_SIZE);
-  if (read_buffer == NULL)
-  {
-    MPRINTF("ERROR: Failed to allocate read buffer\n\r");
-    MPRINTF("Press any key to continue...\n\r");
-    uint8_t dummy_key;
-    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-    return;
-  }
-
-  MPRINTF("\n\rStarting WRAPCFG DQS shift test for 8D-8D-8D mode...\n\r");
-  MPRINTF("Testing all DQS shift values (0-31) with memory reads\n\r");
-  MPRINTF("Press any key to start or 'q' to skip\n\r\n\r");
-
-  uint8_t test_key;
-  if (WAIT_CHAR(&test_key, ms_to_ticks(100000)) == RES_OK && (test_key == 'q' || test_key == 'Q'))
-  {
-    MPRINTF("Test skipped by user\n\r");
-    App_free(read_buffer);
-    return;
-  }
-
-  R_XSPI0_Type *p_reg = (R_XSPI0_Type *)MC80_OSPI0_BASE_ADDRESS;
-
-  // Test DQS shift values from 0 to 31
-  for (uint32_t shift_val = 0; shift_val <= 31; shift_val++)
-  {
-    MPRINTF(VT100_CLEAR_AND_HOME);
-    MPRINTF(" ===== DQS Shift Value: %lu =====\n\r", shift_val);
-
-    // Set new DQS shift value for CS0
-    uint32_t wrapcfg_val = p_reg->WRAPCFG;
-    wrapcfg_val &= ~OSPI_WRAPCFG_DSSFTCS0_Msk;  // Clear current CS0 shift value
-    wrapcfg_val |= (shift_val << OSPI_WRAPCFG_DSSFTCS0_Pos) & OSPI_WRAPCFG_DSSFTCS0_Msk;
-    p_reg->WRAPCFG = wrapcfg_val;
-
-    MPRINTF("WRAPCFG DQS Shift set to: %lu\n\r", shift_val);
-    MPRINTF("WRAPCFG register value: 0x%08X\n\r\n\r", p_reg->WRAPCFG);
-
-    // Small delay for change to take effect
-    R_BSP_SoftwareDelay(100, BSP_DELAY_UNITS_MICROSECONDS);
-
-    // Perform memory-mapped read operation using DMA
-    err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, 0x00000000, 64);
-
-    if (err == FSP_SUCCESS)
-    {
-      MPRINTF("Memory Read Status: SUCCESS\n\r\n\r");
-
-      // Display data in hex format (16 bytes per line)
-      for (int i = 0; i < 64; i++)
-      {
-        if (i % 16 == 0)
-        {
-          MPRINTF("%08X: ", i);  // Address
-        }
-
-        MPRINTF("%02X ", read_buffer[i]);
-
-        if (i % 16 == 15)
-        {
-          MPRINTF("\n\r");
-        }
-        else if (i % 8 == 7)
-        {
-          MPRINTF(" ");  // Extra space every 8 bytes
-        }
-      }
-
-      MPRINTF("\n\r");
-    }
-    else
-    {
-      MPRINTF("Memory Read Status: FAILED (error: 0x%X)\n\r", err);
-    }
-
-    MPRINTF("\n\rPress any key to continue to next value (or 'q' to quit): ");
-    uint8_t continue_key;
-    if (WAIT_CHAR(&continue_key, ms_to_ticks(100000)) == RES_OK)
-    {
-      if (continue_key == 'q' || continue_key == 'Q')
-      {
-        MPRINTF("\n\rTest stopped by user at DQS shift value %lu\n\r", shift_val);
-        break;
-      }
-    }
-  }
-
-  // Clean up
-  App_free(read_buffer);
-
-  MPRINTF("\n\rDQS timing test completed.\n\r");
-  MPRINTF("Press any key to continue...\n\r");
-  uint8_t dummy_key;
-  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
-}
-
-/*-----------------------------------------------------------------------------------------------------
-  Description: Display comprehensive comparison of all OSPI register snapshots
-
-  This function performs a complete comparison of all registers captured in two OSPI register
-  snapshots and displays all differences in a structured format. It compares every register
-  field including control, configuration, calibration, status, and command buffer registers.
-
-  Parameters:
-    before - Pointer to snapshot taken before protocol switch
-    after  - Pointer to snapshot taken after protocol switch
-
-  Return:
-    void
------------------------------------------------------------------------------------------------------*/
-static void _Ospi_display_register_differences(const T_mc80_ospi_register_snapshot *before, const T_mc80_ospi_register_snapshot *after)
-{
-  GET_MCBL;
-  MPRINTF("\n\r===== Complete Register Differences (Before -> After) =====\n\r");
-
-  uint32_t changes_count = 0;
-
-  // Metadata comparison
-  MPRINTF("\n\r--- Metadata ---\n\r");
-  MPRINTF("Protocol    : %s -> %s\n\r",
-          (before->current_protocol == MC80_OSPI_PROTOCOL_1S_1S_1S) ? "1S-1S-1S" : "8D-8D-8D",
-          (after->current_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D) ? "8D-8D-8D" : "1S-1S-1S");
-  MPRINTF("Channel     : %d -> %d\n\r", before->channel, after->channel);
-  MPRINTF("Timestamp   : %lu -> %lu (delta: %ld ticks)\n\r",
-          before->timestamp, after->timestamp, (long)(after->timestamp - before->timestamp));
-
-  // Control and Configuration Registers
-  MPRINTF("\n\r--- Control & Configuration Registers ---\n\r");
-
-  if (before->lioctl != after->lioctl)
-  {
-    MPRINTF("LIOCTL      : 0x%08lX -> 0x%08lX\n\r", before->lioctl, after->lioctl);
-    changes_count++;
-  }
-
-  if (before->wrapcfg != after->wrapcfg)
-  {
-    MPRINTF("WRAPCFG     : 0x%08lX -> 0x%08lX\n\r", before->wrapcfg, after->wrapcfg);
-    changes_count++;
-  }
-
-  if (before->comcfg != after->comcfg)
-  {
-    MPRINTF("COMCFG      : 0x%08lX -> 0x%08lX\n\r", before->comcfg, after->comcfg);
-    changes_count++;
-  }
-
-  if (before->bmcfgch[0] != after->bmcfgch[0])
-  {
-    MPRINTF("BMCFGCH[0]  : 0x%08lX -> 0x%08lX\n\r", before->bmcfgch[0], after->bmcfgch[0]);
-    changes_count++;
-  }
-
-  if (before->bmcfgch[1] != after->bmcfgch[1])
-  {
-    MPRINTF("BMCFGCH[1]  : 0x%08lX -> 0x%08lX\n\r", before->bmcfgch[1], after->bmcfgch[1]);
-    changes_count++;
-  }
-
-  if (before->bmctl0 != after->bmctl0)
-  {
-    MPRINTF("BMCTL0      : 0x%08lX -> 0x%08lX\n\r", before->bmctl0, after->bmctl0);
-    changes_count++;
-  }
-
-  if (before->bmctl1 != after->bmctl1)
-  {
-    MPRINTF("BMCTL1      : 0x%08lX -> 0x%08lX\n\r", before->bmctl1, after->bmctl1);
-    changes_count++;
-  }
-
-  if (before->abmcfg != after->abmcfg)
-  {
-    MPRINTF("ABMCFG      : 0x%08lX -> 0x%08lX\n\r", before->abmcfg, after->abmcfg);
-    changes_count++;
-  }
-
-  // Channel Configuration Registers
-  MPRINTF("\n\r--- Channel Configuration Registers ---\n\r");
-
-  for (int ch = 0; ch < 2; ch++)
-  {
-    if (before->liocfgcs[ch] != after->liocfgcs[ch])
-    {
-      MPRINTF("LIOCFGCS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->liocfgcs[ch], after->liocfgcs[ch]);
-      changes_count++;
-    }
-
-    if (before->cmcfgcs[ch].cmcfg0 != after->cmcfgcs[ch].cmcfg0)
-    {
-      MPRINTF("CMCFG0CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg0, after->cmcfgcs[ch].cmcfg0);
-      changes_count++;
-    }
-
-    if (before->cmcfgcs[ch].cmcfg1 != after->cmcfgcs[ch].cmcfg1)
-    {
-      MPRINTF("CMCFG1CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg1, after->cmcfgcs[ch].cmcfg1);
-      changes_count++;
-    }
-
-    if (before->cmcfgcs[ch].cmcfg2 != after->cmcfgcs[ch].cmcfg2)
-    {
-      MPRINTF("CMCFG2CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->cmcfgcs[ch].cmcfg2, after->cmcfgcs[ch].cmcfg2);
-      changes_count++;
-    }
-  }
-
-  // Calibration Control Registers
-  MPRINTF("\n\r--- Calibration Control Registers ---\n\r");
-
-  for (int ch = 0; ch < 2; ch++)
-  {
-    if (before->ccctlcs[ch].ccctl0 != after->ccctlcs[ch].ccctl0)
-    {
-      MPRINTF("CCCTL0CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl0, after->ccctlcs[ch].ccctl0);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl1 != after->ccctlcs[ch].ccctl1)
-    {
-      MPRINTF("CCCTL1CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl1, after->ccctlcs[ch].ccctl1);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl2 != after->ccctlcs[ch].ccctl2)
-    {
-      MPRINTF("CCCTL2CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl2, after->ccctlcs[ch].ccctl2);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl3 != after->ccctlcs[ch].ccctl3)
-    {
-      MPRINTF("CCCTL3CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl3, after->ccctlcs[ch].ccctl3);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl4 != after->ccctlcs[ch].ccctl4)
-    {
-      MPRINTF("CCCTL4CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl4, after->ccctlcs[ch].ccctl4);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl5 != after->ccctlcs[ch].ccctl5)
-    {
-      MPRINTF("CCCTL5CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl5, after->ccctlcs[ch].ccctl5);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl6 != after->ccctlcs[ch].ccctl6)
-    {
-      MPRINTF("CCCTL6CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl6, after->ccctlcs[ch].ccctl6);
-      changes_count++;
-    }
-    if (before->ccctlcs[ch].ccctl7 != after->ccctlcs[ch].ccctl7)
-    {
-      MPRINTF("CCCTL7CS[%d] : 0x%08lX -> 0x%08lX\n\r", ch, before->ccctlcs[ch].ccctl7, after->ccctlcs[ch].ccctl7);
-      changes_count++;
-    }
-  }
-
-  // Status and Interrupt Registers
-  MPRINTF("\n\r--- Status & Interrupt Registers ---\n\r");
-
-  if (before->ints != after->ints)
-  {
-    MPRINTF("INTS        : 0x%08lX -> 0x%08lX\n\r", before->ints, after->ints);
-    changes_count++;
-  }
-
-  if (before->inte != after->inte)
-  {
-    MPRINTF("INTE        : 0x%08lX -> 0x%08lX\n\r", before->inte, after->inte);
-    changes_count++;
-  }
-
-  if (before->comstt != after->comstt)
-  {
-    MPRINTF("COMSTT      : 0x%08lX -> 0x%08lX\n\r", before->comstt, after->comstt);
-    changes_count++;
-  }
-
-  if (before->verstt != after->verstt)
-  {
-    MPRINTF("VERSTT      : 0x%08lX -> 0x%08lX\n\r", before->verstt, after->verstt);
-    changes_count++;
-  }
-
-  // Calibration Status Registers
-  MPRINTF("\n\r--- Calibration Status Registers ---\n\r");
-
-  for (int ch = 0; ch < 2; ch++)
-  {
-    if (before->casttcs[ch] != after->casttcs[ch])
-    {
-      MPRINTF("CASTTCS[%d]  : 0x%08lX -> 0x%08lX\n\r", ch, before->casttcs[ch], after->casttcs[ch]);
-      changes_count++;
-    }
-  }
-
-  // Command Buffer Registers
-  MPRINTF("\n\r--- Command Buffer Registers ---\n\r");
-
-  for (int ch = 0; ch < 2; ch++)
-  {
-    if (before->cdbuf[ch].cdt != after->cdbuf[ch].cdt)
-    {
-      MPRINTF("CDT[%d]      : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdt, after->cdbuf[ch].cdt);
-      changes_count++;
-    }
-    if (before->cdbuf[ch].cda != after->cdbuf[ch].cda)
-    {
-      MPRINTF("CDA[%d]      : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cda, after->cdbuf[ch].cda);
-      changes_count++;
-    }
-    if (before->cdbuf[ch].cdd0 != after->cdbuf[ch].cdd0)
-    {
-      MPRINTF("CDD0[%d]     : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdd0, after->cdbuf[ch].cdd0);
-      changes_count++;
-    }
-    if (before->cdbuf[ch].cdd1 != after->cdbuf[ch].cdd1)
-    {
-      MPRINTF("CDD1[%d]     : 0x%08lX -> 0x%08lX\n\r", ch, before->cdbuf[ch].cdd1, after->cdbuf[ch].cdd1);
-      changes_count++;
-    }
-  }
-
-  // Manual Command Control
-  MPRINTF("\n\r--- Manual Command Control ---\n\r");
-
-  if (before->cdctl0 != after->cdctl0)
-  {
-    MPRINTF("CDCTL0      : 0x%08lX -> 0x%08lX\n\r", before->cdctl0, after->cdctl0);
-    changes_count++;
-  }
-
-  if (before->cdctl1 != after->cdctl1)
-  {
-    MPRINTF("CDCTL1      : 0x%08lX -> 0x%08lX\n\r", before->cdctl1, after->cdctl1);
-    changes_count++;
-  }
-
-  if (before->cdctl2 != after->cdctl2)
-  {
-    MPRINTF("CDCTL2      : 0x%08lX -> 0x%08lX\n\r", before->cdctl2, after->cdctl2);
-    changes_count++;
-  }
-
-  // Link Pattern Control Registers
-  MPRINTF("\n\r--- Link Pattern Control ---\n\r");
-
-  if (before->lpctl0 != after->lpctl0)
-  {
-    MPRINTF("LPCTL0      : 0x%08lX -> 0x%08lX\n\r", before->lpctl0, after->lpctl0);
-    changes_count++;
-  }
-
-  if (before->lpctl1 != after->lpctl1)
-  {
-    MPRINTF("LPCTL1      : 0x%08lX -> 0x%08lX\n\r", before->lpctl1, after->lpctl1);
-    changes_count++;
-  }
-
-  // XIP Control Registers
-  MPRINTF("\n\r--- XIP Control Registers ---\n\r");
-
-  for (int ch = 0; ch < 2; ch++)
-  {
-    if (before->cmctlch[ch] != after->cmctlch[ch])
-    {
-      MPRINTF("CMCTLCH[%d]  : 0x%08lX -> 0x%08lX\n\r", ch, before->cmctlch[ch], after->cmctlch[ch]);
-      changes_count++;
-    }
-  }
-
-  MPRINTF("\n\r--- Summary ---\n\r");
-  MPRINTF("Total register changes detected: %lu\n\r", changes_count);
-
-  if (changes_count == 0)
-  {
-    MPRINTF("No register differences found!\n\r");
+    MPRINTF("> 1000 KB/s (operation too fast to measure)\n\r");
   }
 }
