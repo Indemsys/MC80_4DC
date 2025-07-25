@@ -85,7 +85,7 @@ typedef struct
 
 // Fixed seeds for reproducible random number generation
 #define OSPI_FIXED_SEED_ADDRESS   0x12345678UL  // Fixed seed for address generation
-#define OSPI_FIXED_SEED_DATA      0xABCDEF01UL  // Fixed seed for data generation
+
 
 // Simple Linear Congruential Generator (LCG) for reproducible random numbers
 // Uses same constants as Microsoft Visual C++ RAND_MAX=32767

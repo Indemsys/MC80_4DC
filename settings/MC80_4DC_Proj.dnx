@@ -40,8 +40,8 @@
         <MultiCoreRunAll>1</MultiCoreRunAll>
     </Simulator>
     <PlDriver>
-        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
         <FirstRun>0</FirstRun>
+        <MemConfigValue>D:\Embedded\Projects\OpenSource\MC80\MC80_4DC\R7FA8M1AH.ddf</MemConfigValue>
     </PlDriver>
     <JLinkDriver>
         <LeaveTargetRunning>_ 0</LeaveTargetRunning>
@@ -55,7 +55,7 @@
         <EnforceMemoryConfiguration>0</EnforceMemoryConfiguration>
     </ArmDriver>
     <DebugChecksum>
-        <Checksum>2064194946</Checksum>
+        <Checksum>4197610865</Checksum>
     </DebugChecksum>
     <InterruptStripe>
         <Title0>XSPI_CMP</Title0>
@@ -144,7 +144,9 @@
     </struct_types>
     <watch_formats>
         <Fmt0>{W}1:cdtbuf0	4	0</Fmt0>
-        <Fmt1>{W}1:p_reg-&gt;BMCTL0	4	0</Fmt1>
+        <Fmt1>{W}1:current_aligned_addr	4	0</Fmt1>
+        <Fmt2>{W}1:current_dest_addr	4	0</Fmt2>
+        <Fmt3>{W}1:p_reg-&gt;BMCTL0	4	0</Fmt3>
     </watch_formats>
     <Trace2>
         <Enabled>0</Enabled>
@@ -209,8 +211,7 @@
     </DisassembleMode>
     <Breakpoints2>
         <Bp0>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\VT100\Monitor_OSPI.c}.817.19" 0 0 1 "" 0 "" 0</Bp0>
-        <Bp1>_ 1 "EMUL_CODE" "{$PROJ_DIR$\src\Board\MC80_OSPI_drv.c}.995.3" 0 0 1 "" 0 "" 0</Bp1>
-        <Count>2</Count>
+        <Count>1</Count>
     </Breakpoints2>
     <DriverProfiling>
         <Enabled>0</Enabled>
