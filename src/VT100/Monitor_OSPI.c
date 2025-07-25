@@ -46,6 +46,14 @@ typedef enum
   OSPI_PATTERN_RANDOM
 } T_ospi_pattern_type;
 
+// Address and size alignment types for comprehensive test
+typedef enum
+{
+  OSPI_ALIGNMENT_UNALIGNED = 1,    // Unaligned addresses and random sizes
+  OSPI_ALIGNMENT_64_BYTE,          // 64-byte aligned addresses and sizes
+  OSPI_ALIGNMENT_256_BYTE          // 256-byte aligned addresses and sizes
+} T_ospi_alignment_type;
+
 // OSPI operation results structure
 typedef struct
 {
@@ -139,12 +147,13 @@ void OSPI_test_custom_operations(uint8_t keycode);
 void OSPI_test_comprehensive_memory(uint8_t keycode);
 
 // Internal helper functions
-static fsp_err_t            _Ospi_ensure_driver_open(void);
-static T_mc80_ospi_protocol _Ospi_select_protocol(void);
-static uint32_t             _Ospi_get_address_input(void);
-static uint32_t             _Ospi_get_size_input(uint32_t max_size);
-static T_ospi_pattern_type  _Ospi_get_pattern_type(void);
-static uint8_t              _Ospi_get_pattern_value(void);
+static fsp_err_t              _Ospi_ensure_driver_open(void);
+static T_mc80_ospi_protocol   _Ospi_select_protocol(void);
+static T_ospi_alignment_type  _Ospi_select_alignment_type(void);
+static uint32_t               _Ospi_get_address_input(void);
+static uint32_t               _Ospi_get_size_input(uint32_t max_size);
+static T_ospi_pattern_type    _Ospi_get_pattern_type(void);
+static uint8_t                _Ospi_get_pattern_value(void);
 static void                 _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value);
 static void                 _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address);
 static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
@@ -443,6 +452,55 @@ static T_mc80_ospi_protocol _Ospi_select_protocol(void)
     default:
       MPRINTF("Invalid choice, using Standard SPI (1S-1S-1S)\n\r");
       return MC80_OSPI_PROTOCOL_1S_1S_1S;
+  }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Select alignment type for comprehensive test
+
+  Parameters: None
+
+  Return: Selected alignment type
+-----------------------------------------------------------------------------------------------------*/
+static T_ospi_alignment_type _Ospi_select_alignment_type(void)
+{
+  GET_MCBL;
+  MPRINTF("\n\r===== Alignment Type Selection =====\n\r");
+  MPRINTF("Select address and size alignment:\n\r");
+  MPRINTF("  <1> - Unaligned addresses and random sizes\n\r");
+  MPRINTF("  <2> - 64-byte aligned addresses and sizes\n\r");
+  MPRINTF("  <3> - 256-byte aligned addresses and sizes\n\r");
+  MPRINTF("  <ESC> - Cancel\n\r");
+  MPRINTF("Choice: ");
+
+  uint8_t key = 0;
+  if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
+  {
+    MPRINTF("TIMEOUT - using unaligned addresses\n\r");
+    return OSPI_ALIGNMENT_UNALIGNED;
+  }
+
+  switch (key)
+  {
+    case '1':
+      MPRINTF("1 - Unaligned addresses and odd sizes\n\r");
+      return OSPI_ALIGNMENT_UNALIGNED;
+
+    case '2':
+      MPRINTF("2 - 64-byte aligned addresses and sizes\n\r");
+      return OSPI_ALIGNMENT_64_BYTE;
+
+    case '3':
+      MPRINTF("3 - 256-byte aligned addresses and sizes\n\r");
+      return OSPI_ALIGNMENT_256_BYTE;
+
+    case VT100_ESC:
+      MPRINTF("ESC - Cancelled\n\r");
+      return OSPI_ALIGNMENT_UNALIGNED;  // Default to unaligned
+
+    default:
+      MPRINTF("Invalid choice, using unaligned addresses\n\r");
+      return OSPI_ALIGNMENT_UNALIGNED;
   }
 }
 
@@ -1849,8 +1907,8 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
   // Select protocol for testing
   MPRINTF(VT100_CLEAR_AND_HOME);
   MPRINTF(" ===== Comprehensive OSPI Memory Test =====\n\r");
-  MPRINTF("\n\rThis test uses reproducible random sequences\n\r");
-  MPRINTF("The same test pattern will repeat after each system reset\n\r");
+  MPRINTF("\n\rThis test performs comprehensive memory testing\n\r");
+  MPRINTF("with different address alignment and size options\n\r");
   MPRINTF("\n\rSelect OSPI protocol for testing:\n\r");
   T_mc80_ospi_protocol test_protocol = _Ospi_select_protocol();
 
@@ -1867,6 +1925,9 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
   }
   MPRINTF("Protocol switch successful\n\r");
 
+  // Select alignment type for testing
+  T_ospi_alignment_type alignment_type = _Ospi_select_alignment_type();
+
   // Initialize our PRNG once with fixed seed for reproducible sequences
   _Ospi_prng_seed(OSPI_FIXED_SEED_ADDRESS);
 
@@ -1874,19 +1935,104 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
 
   while (1)
   {
-    // Generate random test parameters using our PRNG - reproducible and deterministic
-    uint32_t test_address = _Ospi_prng_rand32() % (OSPI_MAX_FLASH_ADDRESS + 1);
+    uint32_t test_address;
+    uint32_t test_size;
 
-    // Calculate maximum possible size from start address
-    uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
-    if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+    // Generate address and size based on selected alignment type
+    switch (alignment_type)
     {
-      max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
-    }
+      case OSPI_ALIGNMENT_UNALIGNED:
+        // Generate completely unaligned address and random size
+        test_address = _Ospi_prng_rand32() % (OSPI_MAX_FLASH_ADDRESS + 1);
+        // Make address unaligned by adding 1-63 offset
+        test_address = (test_address & ~0x3F) + ((_Ospi_prng_rand32() % 63) + 1);
+        if (test_address > OSPI_MAX_FLASH_ADDRESS)
+        {
+          test_address = OSPI_MAX_FLASH_ADDRESS - 63;
+        }
 
-    // Generate size between minimum and maximum
-    uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
-    uint32_t test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+        // Calculate maximum possible size and generate random size
+        {
+          uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
+          if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+          {
+            max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
+          }
+
+          uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
+          test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+        }
+        break;
+
+      case OSPI_ALIGNMENT_64_BYTE:
+        // Generate 64-byte aligned address
+        test_address = (_Ospi_prng_rand32() % ((OSPI_MAX_FLASH_ADDRESS + 1) / 64)) * 64;
+
+        // Calculate maximum possible size and make it multiple of 64
+        {
+          uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
+          if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+          {
+            max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
+          }
+
+          // Align max size down to 64-byte boundary
+          max_possible_size = (max_possible_size / 64) * 64;
+
+          // Ensure minimum size is at least 64 bytes
+          uint32_t min_size = 64;
+          if (min_size > max_possible_size)
+          {
+            min_size = max_possible_size;
+          }
+
+          uint32_t size_range = (max_possible_size - min_size) / 64 + 1;
+          test_size = ((_Ospi_prng_rand32() % size_range) * 64) + min_size;
+        }
+        break;
+
+      case OSPI_ALIGNMENT_256_BYTE:
+        // Generate 256-byte aligned address
+        test_address = (_Ospi_prng_rand32() % ((OSPI_MAX_FLASH_ADDRESS + 1) / 256)) * 256;
+
+        // Calculate maximum possible size and make it multiple of 256
+        {
+          uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
+          if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+          {
+            max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
+          }
+
+          // Align max size down to 256-byte boundary
+          max_possible_size = (max_possible_size / 256) * 256;
+
+          // Ensure minimum size is at least 256 bytes
+          uint32_t min_size = 256;
+          if (min_size > max_possible_size)
+          {
+            min_size = max_possible_size;
+          }
+
+          uint32_t size_range = (max_possible_size - min_size) / 256 + 1;
+          test_size = ((_Ospi_prng_rand32() % size_range) * 256) + min_size;
+        }
+        break;
+
+      default:
+        // Fallback to unaligned
+        test_address = _Ospi_prng_rand32() % (OSPI_MAX_FLASH_ADDRESS + 1);
+        {
+          uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
+          if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+          {
+            max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
+          }
+
+          uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
+          test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+        }
+        break;
+    }
 
     // Initialize test result structure
     T_ospi_comprehensive_test_result result = { 0 };
@@ -1898,6 +2044,26 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
     MPRINTF(VT100_CLEAR_AND_HOME);
     MPRINTF(" ===== Comprehensive OSPI Memory Test =====\n\r");
     MPRINTF("\n\rTest #%u (Reproducible sequence)\n\r", test_number);
+
+    // Display alignment type information
+    const char *alignment_str;
+    switch (alignment_type)
+    {
+      case OSPI_ALIGNMENT_UNALIGNED:
+        alignment_str = "Unaligned addresses and random sizes";
+        break;
+      case OSPI_ALIGNMENT_64_BYTE:
+        alignment_str = "64-byte aligned addresses and sizes";
+        break;
+      case OSPI_ALIGNMENT_256_BYTE:
+        alignment_str = "256-byte aligned addresses and sizes";
+        break;
+      default:
+        alignment_str = "Unknown alignment";
+        break;
+    }
+
+    MPRINTF("Alignment type                : %s\n\r", alignment_str);
     MPRINTF("Generated address             : 0x%08X\n\r", test_address);
     MPRINTF("Generated size                : %u bytes\n\r", test_size);
     MPRINTF("\n\rPress ENTER to continue, ESC to exit: ");
