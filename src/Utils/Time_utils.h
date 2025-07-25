@@ -2,6 +2,7 @@
 #define TIME_UTILS_H
 
 #define MS_TO_TICKS(x) (((x * TX_TIMER_TICKS_PER_SECOND) / 1000U) + 1U)
+#define TICKS_TO_MS(x) ((x * 1000U) / TX_TIMER_TICKS_PER_SECOND)
 
 void     Get_system_timings(uint32_t *p_sys_div, uint32_t *p_sys_freq, uint32_t *p_ticks_freq);
 uint32_t Get_system_ticks(uint32_t *v);

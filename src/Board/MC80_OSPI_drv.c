@@ -5,11 +5,24 @@
 #include "App.h"
 #include "MC80_OSPI_drv.h"
 #include "RA8M1_OSPI.h"  // For register definitions only
+#include "Time_utils.h"  // For MS_TO_TICKS and TICKS_TO_MS macros
 
 /*-----------------------------------------------------------------------------------------------------
   OSPI Wait Loop Debug System - can be disabled with MC80_OSPI_DEBUG_WAIT_LOOPS = 0
 -----------------------------------------------------------------------------------------------------*/
 #define MC80_OSPI_DEBUG_WAIT_LOOPS (0)  // Set to 0 to disable all debug measurements
+
+/*-----------------------------------------------------------------------------------------------------
+  OSPI Erase Debug System - can be disabled with MC80_OSPI_DEBUG_ERASE = 0
+-----------------------------------------------------------------------------------------------------*/
+#define MC80_OSPI_DEBUG_ERASE (1)  // Set to 0 to disable erase debug output
+
+#if MC80_OSPI_DEBUG_ERASE
+  #include "RTT_utils.h"
+  #define OSPI_ERASE_DEBUG_PRINT(format, ...) RTT_printf(0, "[OSPI_ERASE] " format "\r\n", ##__VA_ARGS__)
+#else
+  #define OSPI_ERASE_DEBUG_PRINT(format, ...) ((void)0)
+#endif
 
 #if MC80_OSPI_DEBUG_WAIT_LOOPS
 
@@ -123,8 +136,11 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 // DMA completion timeout (1 second = 1000 ms in ThreadX ticks, assuming 1ms tick period)
 #define OSPI_DMA_COMPLETION_TIMEOUT_MS                   (1000UL)
 
-// Periodic polling timeout (3.2768 seconds = 32768 × 100 µs, assuming maximum repetitions)
+// Periodic polling timeout
 #define OSPI_CMDCMP_COMPLETION_TIMEOUT_MS                (3500UL)
+
+// Erase operation timeout (10 seconds for complex erase operations)
+#define OSPI_ERASE_COMPLETION_TIMEOUT_MS                 (10000UL)
 
 /*-----------------------------------------------------------------------------------------------------
   Macro definitions
@@ -219,6 +235,9 @@ static bool                 g_ospi_dma_event_flags_initialized = false;
 #define MC80_OSPI_PERIODIC_INTERVAL                      (0x06U)  // PERITV = 6: 2^7 = 128 cycles = 2.13µs @ 60MHz
 #define MC80_OSPI_PERIODIC_REPETITIONS_MAX               (0x0FU)  // PERREP = 15: 32768 repetitions (2^15), total time = 2.13µs × 32768 = 69.8ms
 #define MC80_OSPI_PERIODIC_MODE_ENABLE                   (0x01U)  // PERMD = 1: Enable periodic mode
+
+// Timeout for periodic polling completion (slightly more than hardware polling time: 69.8ms + margin = 100ms)
+#define OSPI_PERIODIC_POLLING_TIMEOUT_MS                 (100UL)
 
 // Common periodic polling values for flash status monitoring
 #define MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED                (0x00000000U)  // WIP bit = 0 (device ready)
@@ -1167,7 +1186,7 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     if (_Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK) == FSP_SUCCESS)
     {
       // Wait for periodic polling completion using hardware automation
-      status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+      status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_PERIODIC_POLLING_TIMEOUT_MS));
       _Mc80_ospi_periodic_status_stop(p_ctrl);
 
       if (FSP_SUCCESS != status_err)
@@ -1226,6 +1245,24 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_device_address, uint32_t byte_count)
 {
+  // Variable declarations
+  uint32_t                            chip_address_base;
+  uint32_t                            start_address;      // Combined start address (raw and aligned)
+  uint32_t                            total_erase_size;
+  uint32_t                            current_address;
+  T_mc80_ospi_xspi_command_set const *p_cmd_set;
+  T_mc80_ospi_erase_command const    *p_erase_list;
+  uint8_t                             erase_list_length;
+  uint16_t                            block_erase_command;
+  uint16_t                            sector_erase_command;
+  fsp_err_t                           err;
+  T_mc80_ospi_direct_transfer         direct_command;
+  uint32_t                            erase_start_time;
+  fsp_err_t                           status_err;
+  bool                                write_in_progress;
+  uint32_t                            elapsed_time;
+  uint32_t                            index;
+
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
     if (NULL == p_ctrl || NULL == p_device_address || 0 == byte_count)
@@ -1239,7 +1276,6 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   }
 
   // Calculate chip address base for proper addressing
-  uint32_t chip_address_base;
   if (p_ctrl->channel)
   {
     chip_address_base = MC80_OSPI_DEVICE_1_START_ADDRESS;
@@ -1249,28 +1285,40 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     chip_address_base = MC80_OSPI_DEVICE_0_START_ADDRESS;
   }
 
-  // Convert memory-mapped address to chip address
-  uint32_t start_address                                = (uint32_t)p_device_address - chip_address_base;
-  uint32_t end_address                                  = start_address + byte_count;
+  // Convert memory-mapped address to chip address and align to sector boundaries
+  start_address = (uint32_t)p_device_address - chip_address_base;
 
-  // Align addresses to sector boundaries (4KB sectors = 4096 bytes)
-  uint32_t start_aligned                                = start_address & ~(MX25UM25645G_SECTOR_SIZE - 1);                                 // Round down to 4KB boundary
-  uint32_t end_aligned                                  = (end_address + MX25UM25645G_SECTOR_SIZE - 1) & ~(MX25UM25645G_SECTOR_SIZE - 1);  // Round up to 4KB boundary
+  // Calculate aligned erase region (align start down, end up to sector boundaries)
+  uint32_t end_address   = start_address + byte_count;
 
-  // Calculate total size to erase (always multiple of sector size)
-  uint32_t total_erase_size                             = end_aligned - start_aligned;
-  uint32_t current_address                              = start_aligned;
+  // Check for address overflow
+  if (end_address < start_address)
+  {
+    return FSP_ERR_ASSERTION;  // Address overflow detected
+  }
+
+  start_address          = start_address & ~(MX25UM25645G_SECTOR_SIZE - 1);                                 // Round down to 4KB boundary
+  end_address            = (end_address + MX25UM25645G_SECTOR_SIZE - 1) & ~(MX25UM25645G_SECTOR_SIZE - 1);  // Round up to 4KB boundary
+
+  // Calculate total size to erase and set starting address
+  total_erase_size = end_address - start_address;
+  current_address  = start_address;
 
   // Get command set for erase operations
-  T_mc80_ospi_xspi_command_set const *p_cmd_set         = p_ctrl->p_cmd_set;
-  T_mc80_ospi_erase_command const    *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
-  const uint8_t                       erase_list_length = p_cmd_set->p_erase_commands->length;
+  p_cmd_set         = p_ctrl->p_cmd_set;
+  if (NULL == p_cmd_set)
+  {
+    return FSP_ERR_ASSERTION;  // Command set not initialized
+  }
+
+  p_erase_list      = p_cmd_set->p_erase_commands->p_table;
+  erase_list_length = p_cmd_set->p_erase_commands->length;
 
   // Find available erase commands (64KB block and 4KB sector)
-  uint16_t block_erase_command                          = 0;  // 64KB block erase
-  uint16_t sector_erase_command                         = 0;  // 4KB sector erase
+  block_erase_command  = 0;  // 64KB block erase
+  sector_erase_command = 0;  // 4KB sector erase
 
-  for (uint32_t index = 0; index < erase_list_length; index++)
+  for (index = 0; index < erase_list_length; index++)
   {
     if (p_erase_list[index].size == MX25UM25645G_BLOCK_SIZE)
     {
@@ -1283,26 +1331,26 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   }
 
   // Process erase operations in optimal order (largest blocks first)
-  fsp_err_t err = FSP_SUCCESS;
+  err = FSP_SUCCESS;
   while (total_erase_size > 0 && FSP_SUCCESS == err)
   {
-    uint16_t current_command;
-    uint32_t current_erase_size;
+    // Select optimal erase operation based on remaining size and alignment
+    uint16_t erase_command;
+    uint32_t erase_size;
 
-    // Select optimal erase command based on remaining size and alignment
     if (total_erase_size >= MX25UM25645G_BLOCK_SIZE &&
         (current_address & (MX25UM25645G_BLOCK_SIZE - 1)) == 0 &&
         block_erase_command != 0)
     {
       // Use 64KB block erase (optimal for large areas)
-      current_command    = block_erase_command;
-      current_erase_size = MX25UM25645G_BLOCK_SIZE;
+      erase_command = block_erase_command;
+      erase_size    = MX25UM25645G_BLOCK_SIZE;
     }
     else if (sector_erase_command != 0)
     {
       // Use 4KB sector erase (for remaining areas)
-      current_command    = sector_erase_command;
-      current_erase_size = MX25UM25645G_SECTOR_SIZE;
+      erase_command = sector_erase_command;
+      erase_size    = MX25UM25645G_SECTOR_SIZE;
     }
     else
     {
@@ -1317,39 +1365,63 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
       break;
     }
 
-    // Prepare direct command structure
-    T_mc80_ospi_direct_transfer direct_command = {
-      .command        = current_command,
-      .command_length = (uint8_t)p_cmd_set->command_bytes,
-      .address        = current_address,
-      .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),
-      .data_length    = 0,
-    };
+    direct_command.command        = erase_command;
+    direct_command.command_length = (uint8_t)p_cmd_set->command_bytes;
+    direct_command.address        = current_address;
+    direct_command.address_length = (uint8_t)(p_cmd_set->address_bytes + 1U);
+    direct_command.data_length    = 0;
 
     // Execute erase command
     _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
-    // Wait for erase operation completion using hardware periodic polling
-    fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK);
-    if (FSP_SUCCESS != status_err)
+    // Monitor erase completion with extended timeout and retry logic
+    erase_start_time = tx_time_get();
+
+    while (true)
     {
-      err = FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
-      break;
+      // Start periodic polling cycle for erase completion monitoring
+      status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK);
+      if (FSP_SUCCESS != status_err)
+      {
+        err = FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
+        break;
+      }
+
+      // Wait for periodic polling completion using hardware automation
+      status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_PERIODIC_POLLING_TIMEOUT_MS));
+      _Mc80_ospi_periodic_status_stop(p_ctrl);
+
+      // Check device status directly to see if write is still in progress
+      write_in_progress = _Mc80_ospi_status_sub(p_ctrl, p_ctrl->p_cfg->write_status_bit);
+      if (!write_in_progress)
+      {
+        // Write completed successfully (status check shows ready)
+        status_err = FSP_SUCCESS;
+        break;
+      }
+
+      // Check if maximum erase timeout exceeded (calculate inline)
+      elapsed_time = tx_time_get() - erase_start_time;
+      if (elapsed_time >= MS_TO_TICKS(OSPI_ERASE_COMPLETION_TIMEOUT_MS))
+      {
+        err = FSP_ERR_TIMEOUT;  // Maximum erase timeout exceeded
+        break;
+      }
     }
 
-    // Wait for periodic polling completion using hardware automation
-    status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
-    _Mc80_ospi_periodic_status_stop(p_ctrl);
+    // Calculate erase operation time
+    elapsed_time = tx_time_get() - erase_start_time;
+    uint32_t erase_time_ms = TICKS_TO_MS(elapsed_time);
 
-    if (FSP_SUCCESS != status_err)
+    if (FSP_SUCCESS != status_err && FSP_ERR_TIMEOUT != err)
     {
       err = status_err;  // Timeout or error in periodic polling
       break;
     }
 
     // Move to next erase block
-    current_address += current_erase_size;
-    total_erase_size -= current_erase_size;
+    current_address += erase_size;
+    total_erase_size -= erase_size;
   }
 
   // If prefetch is enabled, flush the prefetch caches after erase operations
@@ -1851,7 +1923,7 @@ static fsp_err_t _Mc80_ospi_memory_mapped_write_enable(T_mc80_ospi_instance_ctrl
   }
 
   // Wait for periodic polling completion using hardware automation
-  status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+  status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_PERIODIC_POLLING_TIMEOUT_MS));
   _Mc80_ospi_periodic_status_stop(p_ctrl);
 
   if (FSP_SUCCESS != status_err)
