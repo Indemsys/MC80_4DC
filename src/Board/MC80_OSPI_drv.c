@@ -937,9 +937,8 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 
   Example: Write 100 bytes starting at address 0x800000E0 (32 bytes into 64-byte block)
   - Block 1: temp_buffer[0-31]=0xFF, temp_buffer[32-63]=data[0-31] → write 64 bytes at 0x800000C0
-  - Block 2: data[32-95] → write 64 bytes directly at 0x80000100
-  - Block 3: temp_buffer[0-3]=data[96-99], temp_buffer[4-63]=0xFF → write 64 bytes at 0x80000140
-
+  - Block 2: temp_buffer[0-35]=data[32-67], temp_buffer[36-63]=0xFF → write 64 bytes at 0x80000100
+  - Block 3: temp_buffer[0-31]=data[68-99], temp_buffer[32-63]=0xFF → write 64 bytes at 0x80000140
   Protocol and Operation Method:
   - Uses memory-mapped write mode where flash appears as regular system memory
   - Flash device is accessed via memory-mapped addresses (0x80000000 for Device 0, 0x90000000 for Device 1)
@@ -1040,37 +1039,16 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     if (current_alignment_offset != 0 || bytes_remaining < MC80_OSPI_BLOCK_WRITE_SIZE)
     {
       // Use temporary buffer for alignment or partial block
-      uint32_t bytes_to_copy;
-
-      // Calculate how much data we can copy in this block
       uint32_t available_space_in_block = MC80_OSPI_BLOCK_WRITE_SIZE - current_alignment_offset;
+      uint32_t bytes_to_copy = (bytes_remaining < available_space_in_block) ? bytes_remaining : available_space_in_block;
 
-      // Determine actual bytes to copy (limited by remaining data and available space)
-      bytes_to_copy = bytes_remaining;
-      if (bytes_to_copy > available_space_in_block)
-      {
-        bytes_to_copy = available_space_in_block;
-      }
-
-      // Set block size to full 64-byte block for proper alignment
+      // Always use full 64-byte block for proper alignment
       current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
 
-      // Validate buffer boundaries to prevent overflow
-      if (current_block_size > MC80_OSPI_BLOCK_WRITE_SIZE)
-      {
-        current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;  // Limit to buffer size
-      }
+      // Fill buffer with 0xFF (erased flash state)
+      memset(temp_buffer, 0xFF, MC80_OSPI_BLOCK_WRITE_SIZE);
 
-      if (current_alignment_offset + bytes_to_copy > current_block_size)
-      {
-        err = FSP_ERR_ASSERTION;  // Data would overflow buffer
-        break;
-      }
-
-      // Fill buffer with 0xFF (erased flash state) using memset
-      memset(temp_buffer, 0xFF, current_block_size);
-
-      // Copy user data to aligned position in buffer using memcpy
+      // Copy user data to aligned position in buffer
       memcpy(&temp_buffer[current_alignment_offset], &p_src[src_offset], bytes_to_copy);
 
       write_src  = temp_buffer;
@@ -1079,20 +1057,19 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       // Update for next iteration
       src_offset += bytes_to_copy;
       bytes_remaining -= bytes_to_copy;
-      // Move destination address by the actual amount of data written (not block size)
       current_dest_addr += bytes_to_copy;
     }
     else
     {
-      // Direct transfer for aligned blocks
+      // Direct transfer for aligned full blocks
       write_src          = p_src + src_offset;
       write_dest         = (uint8_t *)current_dest_addr;
       current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
 
       // Update for next iteration
-      src_offset += current_block_size;
-      bytes_remaining -= current_block_size;
-      current_dest_addr += current_block_size;
+      src_offset += MC80_OSPI_BLOCK_WRITE_SIZE;
+      bytes_remaining -= MC80_OSPI_BLOCK_WRITE_SIZE;
+      current_dest_addr += MC80_OSPI_BLOCK_WRITE_SIZE;
     }
 
     // Configure DMA for current block transfer
