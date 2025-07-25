@@ -3,9 +3,6 @@
 -----------------------------------------------------------------------------------------------------*/
 
 #include "App.h"
-#include "MC80_OSPI_drv.h"
-#include "RA8M1_OSPI.h"  // For register definitions only
-#include "Time_utils.h"  // For MS_TO_TICKS and TICKS_TO_MS macros
 
 /*-----------------------------------------------------------------------------------------------------
   OSPI Wait Loop Debug System - can be disabled with MC80_OSPI_DEBUG_WAIT_LOOPS = 0
@@ -15,7 +12,7 @@
 /*-----------------------------------------------------------------------------------------------------
   OSPI Erase Debug System - can be disabled with MC80_OSPI_DEBUG_ERASE = 0
 -----------------------------------------------------------------------------------------------------*/
-#define MC80_OSPI_DEBUG_ERASE (1)  // Set to 0 to disable erase debug output
+#define MC80_OSPI_DEBUG_ERASE      (1)  // Set to 0 to disable erase debug output
 
 #if MC80_OSPI_DEBUG_ERASE
   #include "RTT_utils.h"
@@ -1040,10 +1037,10 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     {
       // Use temporary buffer for alignment or partial block
       uint32_t available_space_in_block = MC80_OSPI_BLOCK_WRITE_SIZE - current_alignment_offset;
-      uint32_t bytes_to_copy = (bytes_remaining < available_space_in_block) ? bytes_remaining : available_space_in_block;
+      uint32_t bytes_to_copy            = (bytes_remaining < available_space_in_block) ? bytes_remaining : available_space_in_block;
 
       // Always use full 64-byte block for proper alignment
-      current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
+      current_block_size                = MC80_OSPI_BLOCK_WRITE_SIZE;
 
       // Fill buffer with 0xFF (erased flash state)
       memset(temp_buffer, 0xFF, MC80_OSPI_BLOCK_WRITE_SIZE);
@@ -1201,7 +1198,7 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
 {
   // Variable declarations
   uint32_t                            chip_address_base;
-  uint32_t                            start_address;      // Combined start address (raw and aligned)
+  uint32_t                            start_address;  // Combined start address (raw and aligned)
   uint32_t                            total_erase_size;
   uint32_t                            current_address;
   T_mc80_ospi_xspi_command_set const *p_cmd_set;
@@ -1240,33 +1237,33 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   }
 
   // Convert memory-mapped address to chip address and align to sector boundaries
-  start_address = (uint32_t)p_device_address - chip_address_base;
+  start_address        = (uint32_t)p_device_address - chip_address_base;
 
   // Calculate aligned erase region (align start down, end up to sector boundaries)
-  uint32_t end_address   = start_address + byte_count;
+  uint32_t end_address = start_address + byte_count;
 
   // Check for address overflow
   if (end_address < start_address)
   {
-    return FSP_ERR_ASSERTION;  // Address overflow detected
+    return FSP_ERR_ASSERTION;                                                                         // Address overflow detected
   }
 
-  start_address          = start_address & ~(MX25UM25645G_SECTOR_SIZE - 1);                                 // Round down to 4KB boundary
-  end_address            = (end_address + MX25UM25645G_SECTOR_SIZE - 1) & ~(MX25UM25645G_SECTOR_SIZE - 1);  // Round up to 4KB boundary
+  start_address    = start_address & ~(MX25UM25645G_SECTOR_SIZE - 1);                                 // Round down to 4KB boundary
+  end_address      = (end_address + MX25UM25645G_SECTOR_SIZE - 1) & ~(MX25UM25645G_SECTOR_SIZE - 1);  // Round up to 4KB boundary
 
   // Calculate total size to erase and set starting address
   total_erase_size = end_address - start_address;
   current_address  = start_address;
 
   // Get command set for erase operations
-  p_cmd_set         = p_ctrl->p_cmd_set;
+  p_cmd_set        = p_ctrl->p_cmd_set;
   if (NULL == p_cmd_set)
   {
     return FSP_ERR_ASSERTION;  // Command set not initialized
   }
 
-  p_erase_list      = p_cmd_set->p_erase_commands->p_table;
-  erase_list_length = p_cmd_set->p_erase_commands->length;
+  p_erase_list         = p_cmd_set->p_erase_commands->p_table;
+  erase_list_length    = p_cmd_set->p_erase_commands->length;
 
   // Find available erase commands (64KB block and 4KB sector)
   block_erase_command  = 0;  // 64KB block erase
@@ -1365,7 +1362,6 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
 
     // Calculate erase operation time
     elapsed_time = tx_time_get() - erase_start_time;
-    uint32_t erase_time_ms = TICKS_TO_MS(elapsed_time);
 
     if (FSP_SUCCESS != status_err && FSP_ERR_TIMEOUT != err)
     {

@@ -145,6 +145,7 @@ static uint32_t _Ospi_prng_rand32(void)
 void OSPI_test_info(uint8_t keycode);
 void OSPI_test_custom_operations(uint8_t keycode);
 void OSPI_test_comprehensive_memory(uint8_t keycode);
+void OSPI_chip_erase_full(uint8_t keycode);
 
 // Internal helper functions
 static fsp_err_t             _Ospi_ensure_driver_open(void);
@@ -165,6 +166,7 @@ static uint32_t              _Ospi_calculate_checksum(uint8_t *data, uint32_t si
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
+  { '2', OSPI_chip_erase_full, 0 },
   { '3', OSPI_test_comprehensive_memory, 0 },
   { '4', OSPI_test_custom_operations, 0 },
   { 'R', 0, 0 },
@@ -175,6 +177,7 @@ const T_VT100_Menu MENU_OSPI = {
   "OSPI Flash Testing",
   "\033[5C OSPI Flash memory testing menu\r\n"
   "\033[5C <1> - Flash information & status\r\n"
+  "\033[5C <2> - Full chip erase (32MB)\r\n"
   "\033[5C <3> - Comprehensive memory test (reproducible random sequences)\r\n"
   "\033[5C <4> - Custom operations (read/write/erase)\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
@@ -560,6 +563,264 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
   {
     return err;
   }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Full chip erase operation - erases entire 32MB flash memory
+
+  This function performs complete flash memory erase using Mc80_ospi_erase function.
+  WARNING: This operation will destroy ALL data on the flash chip and cannot be undone.
+  The operation may take several minutes to complete due to the large size (32MB).
+
+  Parameters: keycode - Key code (unused)
+
+  Return: None
+-----------------------------------------------------------------------------------------------------*/
+void OSPI_chip_erase_full(uint8_t keycode)
+{
+  GET_MCBL;
+
+  // Clear screen and display header
+  MPRINTF(VT100_CLEAR_AND_HOME);
+  MPRINTF(" ===== OSPI Full Chip Erase =====\n\r");
+  MPRINTF("\n\r");
+
+  // Display warning message
+  MPRINTF("WARNING: This operation will erase the ENTIRE flash chip (32MB)!\n\r");
+  MPRINTF("ALL data will be permanently lost and cannot be recovered.\n\r");
+  MPRINTF("This operation may take several minutes to complete.\n\r");
+  MPRINTF("\n\r");
+
+  // Confirm operation
+  MPRINTF("Are you absolutely sure you want to proceed? (Y/N): ");
+  uint8_t confirm_key = 0;
+  WAIT_CHAR(&confirm_key, ms_to_ticks(30000));
+  MPRINTF("%c\n\r", confirm_key);
+
+  if (confirm_key != 'Y' && confirm_key != 'y')
+  {
+    MPRINTF("Operation cancelled by user\n\r");
+    MPRINTF("Press any key to return to menu...");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(10000));
+    return;
+  }
+
+  // Final confirmation
+  MPRINTF("\n\rFinal confirmation - Type 'ERASE' to proceed: ");
+  char confirm_text[16];
+  uint8_t i = 0;
+
+  while (i < sizeof(confirm_text) - 1)
+  {
+    uint8_t ch = 0;
+    if (WAIT_CHAR(&ch, ms_to_ticks(30000)) != RES_OK)
+    {
+      break;  // Timeout, exit loop
+    }
+    if (ch == '\r' || ch == '\n')
+    {
+      break;
+    }
+    if (ch == '\b' && i > 0)  // Backspace
+    {
+      i--;
+      MPRINTF("\b \b");
+      continue;
+    }
+    if (ch >= 32 && ch <= 126)  // Printable characters
+    {
+      confirm_text[i] = ch;
+      MPRINTF("%c", ch);
+      i++;
+    }
+  }
+  confirm_text[i] = '\0';
+  MPRINTF("\n\r");
+
+  if (strcmp(confirm_text, "ERASE") != 0)
+  {
+    MPRINTF("Incorrect confirmation text. Operation cancelled.\n\r");
+    MPRINTF("Press any key to return to menu...");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(10000));
+    return;
+  }
+
+  // Ensure driver is open
+  fsp_err_t err = _Ospi_ensure_driver_open();
+  if (err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to initialize OSPI driver (error: 0x%X)\n\r", err);
+    MPRINTF("Press any key to return to menu...");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(10000));
+    return;
+  }
+
+  MPRINTF("\n\r===== Starting Full Chip Erase =====\n\r");
+  MPRINTF("Flash size: %d MB (%d bytes)\n\r", MX25UM25645G_TOTAL_SIZE / (1024 * 1024), MX25UM25645G_TOTAL_SIZE);
+  MPRINTF("Please wait, this operation may take several minutes...\n\r");
+  MPRINTF("\n\r");
+
+  // Record start time
+  uint32_t start_time = tx_time_get();
+
+  // Perform full chip erase
+  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)MC80_OSPI_DEVICE_0_START_ADDRESS, MX25UM25645G_TOTAL_SIZE);
+
+  // Calculate elapsed time
+  uint32_t end_time = tx_time_get();
+  uint32_t elapsed_ticks = end_time - start_time;
+  uint32_t elapsed_ms = TICKS_TO_MS(elapsed_ticks);
+  uint32_t elapsed_seconds = elapsed_ms / 1000;
+  uint32_t elapsed_minutes = elapsed_seconds / 60;
+
+  MPRINTF("\n\r===== Full Chip Erase Results =====\n\r");
+
+  if (err == FSP_SUCCESS)
+  {
+    MPRINTF("Full chip erase operation     : SUCCESS\n\r");
+    MPRINTF("Erased size                   : %d MB (%d bytes)\n\r",
+            MX25UM25645G_TOTAL_SIZE / (1024 * 1024), MX25UM25645G_TOTAL_SIZE);
+    MPRINTF("Elapsed time                  : %d minutes %d seconds (%d ms)\n\r",
+            elapsed_minutes, elapsed_seconds % 60, elapsed_ms);
+
+    // Calculate effective erase speed
+    if (elapsed_ms > 0)
+    {
+      uint32_t speed_kbps = (MX25UM25645G_TOTAL_SIZE / 1024) * 1000 / elapsed_ms;
+      MPRINTF("Effective erase speed         : %d KB/s\n\r", speed_kbps);
+    }
+
+    // Verification phase - check that entire chip is erased
+    MPRINTF("\n\r===== Erase Verification =====\n\r");
+    MPRINTF("Verifying that entire chip is erased...\n\r");
+    MPRINTF("This will read all 32MB and verify data is 0xFF.\n\r");
+    MPRINTF("Please wait, this may take a few minutes...\n\r");
+
+    // Use 128KB verification buffer for optimal memory usage and efficiency
+    const uint32_t verify_buffer_size = 128 * 1024;  // 128KB buffer
+    uint8_t *verify_buffer = (uint8_t *)App_malloc(verify_buffer_size);
+
+    if (verify_buffer != NULL)
+    {
+      bool     verification_passed = true;
+      uint32_t total_verified      = 0;
+      uint32_t error_count         = 0;
+      uint32_t first_error_address = 0;
+      uint32_t verify_start_time   = tx_time_get();
+
+      // Verify entire chip in 128KB chunks
+      for (uint32_t offset = 0; offset < MX25UM25645G_TOTAL_SIZE && verification_passed; offset += verify_buffer_size)
+      {
+        uint32_t current_chunk_size = verify_buffer_size;
+        if ((offset + verify_buffer_size) > MX25UM25645G_TOTAL_SIZE)
+        {
+          current_chunk_size = MX25UM25645G_TOTAL_SIZE - offset;
+        }
+
+        // Read current chunk
+        fsp_err_t read_err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, verify_buffer, offset, current_chunk_size);
+        if (read_err != FSP_SUCCESS)
+        {
+          MPRINTF("ERROR: Failed to read verification data at offset 0x%08X (error: 0x%X)\n\r", offset, read_err);
+          verification_passed = false;
+          break;
+        }
+
+        // Verify all bytes in current chunk are 0xFF
+        for (uint32_t i = 0; i < current_chunk_size; i++)
+        {
+          if (verify_buffer[i] != 0xFF)
+          {
+            if (error_count == 0)
+            {
+              first_error_address = offset + i;  // Remember first error location
+            }
+            error_count++;
+
+            // Stop verification after finding too many errors (likely systematic failure)
+            if (error_count >= 1000)
+            {
+              verification_passed = false;
+              break;
+            }
+          }
+        }
+
+        total_verified += current_chunk_size;
+
+        // Progress indicator every 4MB
+        if ((offset % (4 * 1024 * 1024)) == 0)
+        {
+          uint32_t progress_percent = (offset * 100) / MX25UM25645G_TOTAL_SIZE;
+          MPRINTF("Verification progress: %d%% (%d MB / %d MB)\n\r",
+                  progress_percent, offset / (1024 * 1024), MX25UM25645G_TOTAL_SIZE / (1024 * 1024));
+        }
+      }
+
+      uint32_t verify_end_time     = tx_time_get();
+      uint32_t verify_elapsed_ticks = verify_end_time - verify_start_time;
+      uint32_t verify_elapsed_ms   = TICKS_TO_MS(verify_elapsed_ticks);
+      uint32_t verify_seconds      = verify_elapsed_ms / 1000;
+      uint32_t verify_minutes      = verify_seconds / 60;
+
+      // Display verification results
+      MPRINTF("\n\r===== Verification Results =====\n\r");
+      MPRINTF("Verification time             : %d minutes %d seconds (%d ms)\n\r",
+              verify_minutes, verify_seconds % 60, verify_elapsed_ms);
+      MPRINTF("Data verified                 : %d MB (%d bytes)\n\r",
+              total_verified / (1024 * 1024), total_verified);
+
+      if (verify_elapsed_ms > 0)
+      {
+        uint32_t verify_speed_kbps = (total_verified / 1024) * 1000 / verify_elapsed_ms;
+        MPRINTF("Verification read speed       : %d KB/s\n\r", verify_speed_kbps);
+      }
+
+      if (verification_passed && error_count == 0)
+      {
+        MPRINTF("Erase verification            : SUCCESS\n\r");
+        MPRINTF("All %d MB verified as 0xFF    : CONFIRMED\n\r", MX25UM25645G_TOTAL_SIZE / (1024 * 1024));
+        MPRINTF("\n\rFull chip erase and verification completed successfully!\n\r");
+        MPRINTF("The entire flash chip is confirmed to be in erased state (0xFF).\n\r");
+      }
+      else
+      {
+        MPRINTF("Erase verification            : FAILED\n\r");
+        MPRINTF("Error count                   : %d bytes\n\r", error_count);
+        if (error_count > 0)
+        {
+          MPRINTF("First error at address        : 0x%08X\n\r", first_error_address);
+        }
+        MPRINTF("\n\rWARNING: Erase verification failed!\n\r");
+        MPRINTF("Some areas of the flash chip are not properly erased.\n\r");
+        MPRINTF("You may need to retry the erase operation.\n\r");
+      }
+
+      App_free(verify_buffer);
+    }
+    else
+    {
+      MPRINTF("ERROR: Failed to allocate %d KB for verification buffer\n\r", verify_buffer_size / 1024);
+      MPRINTF("Skipping erase verification due to memory allocation failure\n\r");
+      MPRINTF("\n\rThe erase operation completed, but verification was skipped.\n\r");
+      MPRINTF("Manual verification is recommended.\n\r");
+    }
+  }
+  else
+  {
+    MPRINTF("Full chip erase operation     : FAILED (error: 0x%X)\n\r", err);
+    MPRINTF("Elapsed time                  : %d minutes %d seconds (%d ms)\n\r",
+            elapsed_minutes, elapsed_seconds % 60, elapsed_ms);
+    MPRINTF("\n\rThe erase operation failed. Flash memory state is unknown.\n\r");
+    MPRINTF("You may need to retry the operation or check hardware connections.\n\r");
+  }
+
+  MPRINTF("\n\rPress any key to return to menu...");
+  uint8_t dummy_key;
+  WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
 }
 
 /*-----------------------------------------------------------------------------------------------------
