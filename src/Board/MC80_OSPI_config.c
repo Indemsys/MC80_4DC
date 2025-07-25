@@ -94,9 +94,9 @@ static const T_mc80_ospi_erase_command g_OSPI_command_set_high_speed_erase_comma
 };
 
 // Erase table for Octal DDR mode
-const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table                     = {
-                      .p_table = (void *)g_OSPI_command_set_high_speed_erase_commands,
-                      .length  = sizeof(g_OSPI_command_set_high_speed_erase_commands) / sizeof(g_OSPI_command_set_high_speed_erase_commands[0]),
+const T_mc80_ospi_table g_OSPI_command_set_high_speed_erase_table = {
+  .p_table = (void *)g_OSPI_command_set_high_speed_erase_commands,
+  .length  = sizeof(g_OSPI_command_set_high_speed_erase_commands) / sizeof(g_OSPI_command_set_high_speed_erase_commands[0]),
 };
 
 // === Command Set Configuration ===
@@ -164,14 +164,14 @@ static const uint32_t g_OSPI_preamble_patterns[4] = {
 
 // === OSPI Extended Configuration ===
 const T_mc80_ospi_extended_cfg g_OSPI_extended_cfg = {
-  .ospi_unit                               = 0,                               // OSPI unit number (0 or 1)
-  .channel                                 = (T_mc80_ospi_device_number)0,    // Device channel number
-  .p_autocalibration_preamble_pattern_addr = (uint8_t *)0x80000000,           // Auto-calibration pattern address (XIP base)
-  .p_autocalibration_preamble_patterns     = (uint32_t *)g_OSPI_preamble_patterns, // Preamble patterns for calibration
-  .p_timing_settings                       = &g_OSPI_timing_settings,         // Timing settings
-  .p_xspi_command_set                      = &g_OSPI_command_set,             // Command set table
-  .data_latch_delay_clocks                 = MC80_OSPI_DS_TIMING_DELAY_15,    // Data latch delay
-  .p_lower_lvl_transfer                    = &g_transfer_OSPI,                // DMA transfer instance
+  .ospi_unit                               = 0,                                     // OSPI unit number (0 or 1)
+  .channel                                 = (T_mc80_ospi_device_number)0,          // Device channel number
+  .p_autocalibration_preamble_pattern_addr = (uint8_t *)0x80000000,                 // Auto-calibration pattern address (XIP base)
+  .p_autocalibration_preamble_patterns     = (uint32_t *)g_OSPI_preamble_patterns,  // Preamble patterns for calibration
+  .p_timing_settings                       = &g_OSPI_timing_settings,               // Timing settings
+  .p_xspi_command_set                      = &g_OSPI_command_set,                   // Command set table
+  .data_latch_delay_clocks                 = MC80_OSPI_DS_TIMING_DELAY_15,          // Data latch delay
+  .p_lower_lvl_transfer                    = &g_transfer_OSPI,                      // DMA transfer instance
 };
 
 // === MC80 OSPI Configuration ===
@@ -187,19 +187,19 @@ const T_mc80_ospi_cfg g_OSPI_cfg = {
 
 // MC80 OSPI API interface
 const T_mc80_ospi_api g_mc80_ospi_api = {
-  .open                   = Mc80_ospi_open,
-  .close                  = Mc80_ospi_close,
-  .write                  = Mc80_ospi_memory_mapped_write,
-  .erase                  = Mc80_ospi_erase,
-  .statusGet              = Mc80_ospi_status_get,
-  .spiProtocolSet         = Mc80_ospi_spi_protocol_set,
-  .spiProtocolSwitchSafe  = Mc80_ospi_spi_protocol_switch_safe,
-  .xipEnter               = Mc80_ospi_xip_enter,
-  .xipExit                = Mc80_ospi_xip_exit,
-  .directWrite            = Mc80_ospi_direct_write,
-  .directRead             = Mc80_ospi_direct_read,
-  .directTransfer         = Mc80_ospi_direct_transfer,
-  .bankSet        = Mc80_ospi_bank_set,
+  .open                  = Mc80_ospi_open,
+  .close                 = Mc80_ospi_close,
+  .write                 = Mc80_ospi_memory_mapped_write,
+  .erase                 = Mc80_ospi_erase,
+  .statusGet             = Mc80_ospi_status_get,
+  .spiProtocolSet        = Mc80_ospi_spi_protocol_set,
+  .spiProtocolSwitchSafe = Mc80_ospi_spi_protocol_switch_safe,
+  .xipEnter              = Mc80_ospi_xip_enter,
+  .xipExit               = Mc80_ospi_xip_exit,
+  .directWrite           = Mc80_ospi_direct_write,
+  .directRead            = Mc80_ospi_direct_read,
+  .directTransfer        = Mc80_ospi_direct_transfer,
+  .bankSet               = Mc80_ospi_bank_set,
 };
 
 // === MC80 OSPI Instance ===
