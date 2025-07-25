@@ -1039,38 +1039,25 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       // Use temporary buffer for alignment, partial block, or page boundary protection
       uint32_t bytes_to_copy;
 
-      // Check if current block can accommodate any data with alignment
-      if (max_safe_block_size <= current_alignment_offset)
+      // Calculate how much data we can copy in this block
+      uint32_t available_space_in_block = max_safe_block_size - current_alignment_offset;
+
+      // Check for edge case where no space is available
+      if (available_space_in_block == 0)
       {
-        // Case: Very close to page boundary, cannot fit any data in current block
-        // Calculate how many bytes we can actually write to reach the page boundary
-        bytes_to_copy = bytes_to_page_end;
-        if (bytes_to_copy > bytes_remaining)
-        {
-          bytes_to_copy = bytes_remaining;
-        }
-
-        // Use the remaining space in current page as block size
-        current_block_size = bytes_to_page_end;
-
-        // Set alignment offset to position data at the start of remaining space
-        current_alignment_offset = 0;
-
-        // Update destination to current address (no alignment needed)
-        current_aligned_addr = current_dest_addr;
+        err = FSP_ERR_ASSERTION;  // No space available in current block
+        break;
       }
-      else
+
+      // Determine actual bytes to copy (limited by remaining data and available space)
+      bytes_to_copy = bytes_remaining;
+      if (bytes_to_copy > available_space_in_block)
       {
-        // Normal case: can fit data within alignment constraints
-        bytes_to_copy = max_safe_block_size - current_alignment_offset;
-        if (bytes_to_copy > bytes_remaining)
-        {
-          bytes_to_copy = bytes_remaining;
-        }
-
-        // Set actual block size (may be less than 64 bytes for page boundaries)
-        current_block_size = max_safe_block_size;
+        bytes_to_copy = available_space_in_block;
       }
+
+      // Set block size - use max safe block size for proper alignment
+      current_block_size = max_safe_block_size;
 
       // Validate buffer boundaries to prevent overflow
       if (current_block_size > MC80_OSPI_BLOCK_WRITE_SIZE)
@@ -1096,8 +1083,8 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       // Update for next iteration
       src_offset += bytes_to_copy;
       bytes_remaining -= bytes_to_copy;
-      // For aligned buffer writes, move to next position after the actual block
-      current_dest_addr = current_aligned_addr + current_block_size;
+      // Move destination address by the actual amount of data written (not block size)
+      current_dest_addr += bytes_to_copy;
     }
     else
     {
