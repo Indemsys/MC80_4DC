@@ -34,6 +34,10 @@
 #define OSPI_MAX_FLASH_ADDRESS        0x01FFFFFF      // 32MB flash size - 1
 #define OSPI_DISPLAY_BYTES_PER_LINE   16              // Bytes per line for hex display
 
+// Comprehensive test limits
+#define OSPI_COMPREHENSIVE_TEST_MAX_SIZE  (150 * 1024)   // Maximum 150KB for comprehensive test
+#define OSPI_COMPREHENSIVE_TEST_MIN_SIZE  1               // Minimum 1 byte for comprehensive test
+
 // Data pattern types
 typedef enum
 {
@@ -64,9 +68,75 @@ typedef struct
   bool                 settings_valid;
 } T_ospi_operation_settings;
 
+// Comprehensive test result structure
+typedef struct
+{
+  uint32_t test_number;
+  uint32_t address;
+  uint32_t size;
+  uint32_t erase_time_us;
+  uint32_t write_time_us;
+  uint32_t read_time_us;
+  uint32_t write_checksum;
+  uint32_t read_checksum;
+  bool     checksum_match;
+  bool     test_passed;
+} T_ospi_comprehensive_test_result;
+
+// Fixed seeds for reproducible random number generation
+#define OSPI_FIXED_SEED_ADDRESS   0x12345678UL  // Fixed seed for address generation
+#define OSPI_FIXED_SEED_DATA      0xABCDEF01UL  // Fixed seed for data generation
+
+// Simple Linear Congruential Generator (LCG) for reproducible random numbers
+// Uses same constants as Microsoft Visual C++ RAND_MAX=32767
+static uint32_t g_ospi_prng_state = 1;
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Initialize PRNG with seed value
+
+  Parameters: seed - Seed value for PRNG
+
+  Return:
+-----------------------------------------------------------------------------------------------------*/
+static void _Ospi_prng_seed(uint32_t seed)
+{
+  g_ospi_prng_state = seed;
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Generate next pseudo-random number using LCG algorithm
+
+  Parameters: None
+
+  Return: Pseudo-random number (0 to RAND_MAX)
+-----------------------------------------------------------------------------------------------------*/
+static uint32_t _Ospi_prng_rand(void)
+{
+  // Linear Congruential Generator: next = (a * seed + c) % m
+  // Using constants from Numerical Recipes: a=1664525, c=1013904223, m=2^32
+  g_ospi_prng_state = (1664525UL * g_ospi_prng_state + 1013904223UL);
+  return (g_ospi_prng_state >> 16) & 0x7FFF; // Return 15-bit value (0-32767)
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Generate 32-bit pseudo-random number
+
+  Parameters: None
+
+  Return: 32-bit pseudo-random number
+-----------------------------------------------------------------------------------------------------*/
+static uint32_t _Ospi_prng_rand32(void)
+{
+  // Combine two 16-bit values to get full 32-bit range
+  uint32_t high = _Ospi_prng_rand() << 16;
+  uint32_t low = _Ospi_prng_rand();
+  return high | low;
+}
+
 // Function declarations
 void OSPI_test_info(uint8_t keycode);
 void OSPI_test_custom_operations(uint8_t keycode);
+void OSPI_test_comprehensive_memory(uint8_t keycode);
 
 // Internal helper functions
 static fsp_err_t            _Ospi_ensure_driver_open(void);
@@ -80,11 +150,13 @@ static void                 _Ospi_display_data(uint8_t *data, uint32_t size, uin
 static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
 static void                 _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results);
 static bool                 _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size);
+static bool                 _Ospi_compare_buffers_detailed(uint8_t *write_buffer, uint8_t *read_buffer, uint32_t size, uint32_t address);
 static bool                 _Ospi_verify_erase_data(uint32_t address, uint32_t size);
 static uint32_t             _Ospi_calculate_checksum(uint8_t *data, uint32_t size);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
+  { '3', OSPI_test_comprehensive_memory, 0 },
   { '4', OSPI_test_custom_operations, 0 },
   { 'R', 0, 0 },
   { 0 }
@@ -94,6 +166,7 @@ const T_VT100_Menu MENU_OSPI = {
   "OSPI Flash Testing",
   "\033[5C OSPI Flash memory testing menu\r\n"
   "\033[5C <1> - Flash information & status\r\n"
+  "\033[5C <3> - Comprehensive memory test (reproducible random sequences)\r\n"
   "\033[5C <4> - Custom operations (read/write/erase)\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
@@ -130,7 +203,7 @@ static void _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_osp
         MPRINTF("Increment (start: 0x%02X)\n\r", settings->pattern_value);
         break;
       case OSPI_PATTERN_RANDOM:
-        MPRINTF("Random (LFSR)\n\r");
+        MPRINTF("Random (custom PRNG)\n\r");
         break;
     }
 
@@ -1458,14 +1531,12 @@ static void _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_patter
 
     case OSPI_PATTERN_RANDOM:
     {
-      // Use simple LFSR for pseudo-random generation
-      uint32_t lfsr = 0xACE1u; // Seed value
+      // Use our own PRNG for reproducible pseudo-random generation
+      // Initialize with a fixed seed to ensure reproducible results
+      _Ospi_prng_seed(0xACE1u + base_value); // Use base_value to add variation
       for (uint32_t i = 0; i < size; i++)
       {
-        // 16-bit LFSR with taps at positions 16, 15, 13, 4
-        uint32_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1u;
-        lfsr = (lfsr >> 1) | (bit << 15);
-        buffer[i] = (uint8_t)(lfsr & 0xFF);
+        buffer[i] = (uint8_t)_Ospi_prng_rand();
       }
       break;
     }
@@ -1570,6 +1641,63 @@ static void _Ospi_display_speed(uint32_t bytes, uint32_t time_us)
   {
     MPRINTF("> 1000 KB/s (operation too fast to measure)\n\r");
   }
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Compare two data buffers and display detailed differences
+
+  Parameters: write_buffer - Original write data buffer
+              read_buffer - Read back data buffer
+              size - Size of buffers in bytes
+              address - Starting address for display offset
+
+  Return: true if buffers match, false otherwise
+-----------------------------------------------------------------------------------------------------*/
+static bool _Ospi_compare_buffers_detailed(uint8_t *write_buffer, uint8_t *read_buffer, uint32_t size, uint32_t address)
+{
+  GET_MCBL;
+  bool     match = true;
+  uint32_t error_count = 0;
+  uint32_t max_errors_to_display = 20;  // Limit error display to prevent terminal overflow
+
+  MPRINTF("\n\r--- Detailed Data Comparison ---\n\r");
+
+  // Compare all bytes
+  for (uint32_t i = 0; i < size; i++)
+  {
+    if (write_buffer[i] != read_buffer[i])
+    {
+      match = false;
+      error_count++;
+
+      // Display first few errors in detail
+      if (error_count <= max_errors_to_display)
+      {
+        MPRINTF("Mismatch at offset 0x%08X (addr 0x%08X): wrote 0x%02X, read 0x%02X\n\r",
+                i, address + i, write_buffer[i], read_buffer[i]);
+      }
+    }
+  }
+
+  if (match)
+  {
+    MPRINTF("Data comparison               : SUCCESS - All %u bytes match\n\r", size);
+  }
+  else
+  {
+    MPRINTF("Data comparison               : FAILED - %u bytes differ\n\r", error_count);
+    if (error_count > max_errors_to_display)
+    {
+      MPRINTF("... and %u more mismatches (not shown)\n\r", error_count - max_errors_to_display);
+    }
+
+    // Show error statistics
+    double error_percentage = ((double)error_count / (double)size) * 100.0;
+    MPRINTF("Error rate                    : %.2f%% (%u errors out of %u bytes)\n\r",
+            error_percentage, error_count, size);
+  }
+
+  return match;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -1692,4 +1820,274 @@ static uint32_t _Ospi_calculate_checksum(uint8_t *data, uint32_t size)
   }
 
   return ~crc; // Final XOR with 0xFFFFFFFF
+}
+
+/*-----------------------------------------------------------------------------------------------------
+  Description: Comprehensive memory test with reproducible random address and size selection
+               Uses custom PRNG to ensure same sequence after reset (independent of system rand)
+
+  Parameters: keycode - Input key code from VT100 terminal
+
+  Return: None
+-----------------------------------------------------------------------------------------------------*/
+void OSPI_test_comprehensive_memory(uint8_t keycode)
+{
+  GET_MCBL;
+
+  // Ensure OSPI driver is open
+  fsp_err_t init_err = _Ospi_ensure_driver_open();
+  if (init_err != FSP_SUCCESS)
+  {
+    MPRINTF(VT100_CLEAR_AND_HOME);
+    MPRINTF("ERROR: Failed to ensure OSPI driver is open (0x%X)\n\r", init_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+
+  // Select protocol for testing
+  MPRINTF(VT100_CLEAR_AND_HOME);
+  MPRINTF(" ===== Comprehensive OSPI Memory Test =====\n\r");
+  MPRINTF("\n\rThis test uses reproducible random sequences\n\r");
+  MPRINTF("The same test pattern will repeat after each system reset\n\r");
+  MPRINTF("\n\rSelect OSPI protocol for testing:\n\r");
+  T_mc80_ospi_protocol test_protocol = _Ospi_select_protocol();
+
+  // Switch to selected protocol
+  MPRINTF("Switching to selected protocol...\n\r");
+  fsp_err_t protocol_err = Mc80_ospi_spi_protocol_switch_safe(g_mc80_ospi.p_ctrl, test_protocol);
+  if (protocol_err != FSP_SUCCESS)
+  {
+    MPRINTF("ERROR: Failed to switch protocol (0x%X)\n\r", protocol_err);
+    MPRINTF("Press any key to continue...\n\r");
+    uint8_t dummy_key;
+    WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+    return;
+  }
+  MPRINTF("Protocol switch successful\n\r");
+
+  // Initialize our PRNG once with fixed seed for reproducible sequences
+  _Ospi_prng_seed(OSPI_FIXED_SEED_ADDRESS);
+
+  uint32_t test_number = 1;
+
+  while (1)
+  {
+    // Generate random test parameters using our PRNG - reproducible and deterministic
+    uint32_t test_address = _Ospi_prng_rand32() % (OSPI_MAX_FLASH_ADDRESS + 1);
+
+    // Calculate maximum possible size from start address
+    uint32_t max_possible_size = OSPI_MAX_FLASH_ADDRESS - test_address + 1;
+    if (max_possible_size > OSPI_COMPREHENSIVE_TEST_MAX_SIZE)
+    {
+      max_possible_size = OSPI_COMPREHENSIVE_TEST_MAX_SIZE;
+    }
+
+    // Generate size between minimum and maximum
+    uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
+    uint32_t test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+
+    // Initialize test result structure
+    T_ospi_comprehensive_test_result result = { 0 };
+    result.test_number = test_number;
+    result.address = test_address;
+    result.size = test_size;
+    result.test_passed = false;
+
+    MPRINTF(VT100_CLEAR_AND_HOME);
+    MPRINTF(" ===== Comprehensive OSPI Memory Test =====\n\r");
+    MPRINTF("\n\rTest #%u (Reproducible sequence)\n\r", test_number);
+    MPRINTF("Generated address             : 0x%08X\n\r", test_address);
+    MPRINTF("Generated size                : %u bytes\n\r", test_size);
+    MPRINTF("\n\rPress ENTER to continue, ESC to exit: ");
+
+    // Wait for user confirmation
+    uint8_t key = 0;
+    if (WAIT_CHAR(&key, ms_to_ticks(600000)) != RES_OK)  // Wait up to 10 minutes
+    {
+      MPRINTF("TIMEOUT - continuing automatically\n\r");
+      key = '\r';  // Auto-continue on timeout
+    }
+    MPRINTF("%c\n\r", key);
+
+    if (key == VT100_ESC)
+    {
+      MPRINTF("Test sequence terminated by user\n\r");
+      MPRINTF("Press any key to return to menu...\n\r");
+      uint8_t dummy_key;
+      WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+      return;
+    }
+
+    // Allocate buffer for random data
+    uint8_t *write_buffer = (uint8_t *)App_malloc(test_size);
+    if (write_buffer == NULL)
+    {
+      MPRINTF("ERROR: Failed to allocate %u bytes for write buffer\n\r", test_size);
+      MPRINTF("Skipping this test...\n\r");
+      MPRINTF("Press any key to continue...\n\r");
+      uint8_t dummy_key;
+      WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+      test_number++;
+      continue;
+    }
+
+    // Allocate buffer for read verification
+    uint8_t *read_buffer = (uint8_t *)App_malloc(test_size);
+    if (read_buffer == NULL)
+    {
+      MPRINTF("ERROR: Failed to allocate %u bytes for read buffer\n\r");
+      App_free(write_buffer);
+      MPRINTF("Skipping this test...\n\r");
+      MPRINTF("Press any key to continue...\n\r");
+      uint8_t dummy_key;
+      WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+      test_number++;
+      continue;
+    }
+
+    bool test_success = true;
+
+    // Step 1: Erase the test area
+    MPRINTF("\n\r--- Step 1: Erasing test area ---\n\r");
+    T_sys_timestump start_time;
+    Get_hw_timestump(&start_time);
+    fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
+    T_sys_timestump end_time;
+    Get_hw_timestump(&end_time);
+    result.erase_time_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+    if (err != FSP_SUCCESS)
+    {
+      MPRINTF("Erase operation               : FAILED (error: 0x%X)\n\r", err);
+      test_success = false;
+    }
+    else
+    {
+      MPRINTF("Erase operation               : SUCCESS\n\r");
+      MPRINTF("Erase time                    : %u us\n\r", result.erase_time_us);
+      MPRINTF("Erase speed                   : ");
+      _Ospi_display_speed(test_size, result.erase_time_us);
+    }
+
+    // Step 2: Generate random data and write
+    if (test_success)
+    {
+      MPRINTF("\n\r--- Step 2: Writing random data ---\n\r");
+
+      // Generate random data using our PRNG - continues the same sequence
+      for (uint32_t i = 0; i < test_size; i++)
+      {
+        write_buffer[i] = (uint8_t)_Ospi_prng_rand();
+      }
+
+      result.write_checksum = _Ospi_calculate_checksum(write_buffer, test_size);
+      MPRINTF("Generated data checksum       : 0x%08X\n\r", result.write_checksum);
+
+      Get_hw_timestump(&start_time);
+      err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
+      Get_hw_timestump(&end_time);
+      result.write_time_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+      if (err != FSP_SUCCESS)
+      {
+        MPRINTF("Write operation               : FAILED (error: 0x%X)\n\r", err);
+        test_success = false;
+      }
+      else
+      {
+        MPRINTF("Write operation               : SUCCESS\n\r");
+        MPRINTF("Write time                    : %u us\n\r", result.write_time_us);
+        MPRINTF("Write speed                   : ");
+        _Ospi_display_speed(test_size, result.write_time_us);
+      }
+    }
+
+    // Step 3: Read back and verify
+    if (test_success)
+    {
+      MPRINTF("\n\r--- Step 3: Reading and verifying data ---\n\r");
+      memset(read_buffer, 0x00, test_size);  // Clear read buffer
+
+      Get_hw_timestump(&start_time);
+      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, test_address, test_size);
+      Get_hw_timestump(&end_time);
+      result.read_time_us = Timestump_diff_to_usec(&start_time, &end_time);
+
+      if (err != FSP_SUCCESS)
+      {
+        MPRINTF("Read operation                : FAILED (error: 0x%X)\n\r", err);
+        test_success = false;
+      }
+      else
+      {
+        MPRINTF("Read operation                : SUCCESS\n\r");
+        MPRINTF("Read time                     : %u us\n\r", result.read_time_us);
+        MPRINTF("Read speed                    : ");
+        _Ospi_display_speed(test_size, result.read_time_us);
+
+        result.read_checksum = _Ospi_calculate_checksum(read_buffer, test_size);
+        MPRINTF("Read data checksum            : 0x%08X\n\r", result.read_checksum);
+      }
+    }
+
+    // Step 4: Compare data buffers in detail
+    if (test_success)
+    {
+      MPRINTF("\n\r--- Step 4: Detailed data comparison ---\n\r");
+      result.checksum_match = (result.write_checksum == result.read_checksum);
+
+      // Always perform detailed comparison even if checksums match
+      bool data_match = _Ospi_compare_buffers_detailed(write_buffer, read_buffer, test_size, test_address);
+
+      if (result.checksum_match && data_match)
+      {
+        MPRINTF("Overall verification          : SUCCESS (checksums and data match)\n\r");
+        result.test_passed = true;
+      }
+      else if (result.checksum_match && !data_match)
+      {
+        MPRINTF("Overall verification          : UNEXPECTED - checksums match but data differs\n\r");
+        MPRINTF("This may indicate a CRC calculation issue\n\r");
+        test_success = false;
+      }
+      else if (!result.checksum_match && data_match)
+      {
+        MPRINTF("Overall verification          : UNEXPECTED - data matches but checksums differ\n\r");
+        MPRINTF("This may indicate a CRC calculation issue\n\r");
+        test_success = false;
+      }
+      else
+      {
+        MPRINTF("Overall verification          : FAILED (both checksums and data differ)\n\r");
+        test_success = false;
+      }
+    }
+
+    // Clean up buffers
+    App_free(write_buffer);
+    App_free(read_buffer);
+
+    // Brief pause before next test
+    MPRINTF("\n\rPress any key for next test, ESC to exit...\n\r");
+    uint8_t next_key = 0;
+    if (WAIT_CHAR(&next_key, ms_to_ticks(600000)) == RES_OK)  // Wait up to 10 minutes
+    {
+      if (next_key == VT100_ESC)
+      {
+        MPRINTF("Test sequence terminated by user\n\r");
+        MPRINTF("Press any key to return to menu...\n\r");
+        uint8_t dummy_key;
+        WAIT_CHAR(&dummy_key, ms_to_ticks(100000));
+        return;
+      }
+    }
+    else
+    {
+      MPRINTF("TIMEOUT - continuing automatically\n\r");
+    }
+
+    test_number++;
+  }
 }

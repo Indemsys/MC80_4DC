@@ -822,8 +822,8 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   transfer_instance_t const      *p_transfer   = p_cfg_extend->p_lower_lvl_transfer;
 
   // Process data in blocks to handle any size transfer while respecting DMA limitations
-  uint32_t bytes_remaining = bytes;
-  uint32_t offset          = 0;
+  uint32_t bytes_remaining                     = bytes;
+  uint32_t offset                              = 0;
 
   while (bytes_remaining > 0)
   {
@@ -846,7 +846,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
     p_transfer->p_cfg->p_info->length                        = (uint16_t)current_block_size;  // Safe cast - always <= 32KB
 
     // Reconfigure DMA with current block settings
-    err = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
+    err                                                      = p_transfer->p_api->reconfigure(p_transfer->p_ctrl, p_transfer->p_cfg->p_info);
     if (FSP_SUCCESS != err)
     {
       break;  // Exit on DMA configuration error
@@ -871,7 +871,7 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 
     // Verify current block transfer completion status using infoGet
     transfer_properties_t transfer_properties = { 0U };
-    err = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
+    err                                       = p_transfer->p_api->infoGet(p_transfer->p_ctrl, &transfer_properties);
     if (FSP_SUCCESS != err)
     {
       break;  // Exit on transfer status error
@@ -893,20 +893,38 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Program data to the flash using memory-mapped DMA transfer with 64-byte block optimization.
+  Universal flash programming function with automatic alignment and size handling.
 
   This function performs high-performance flash programming using the OSPI memory-mapped mode
-  combined with DMA (Direct Memory Access) for efficient data transfer. The function processes
-  data in optimized 64-byte blocks to maximize performance with the hardware combination function.
+  combined with DMA (Direct Memory Access) for efficient data transfer. The function automatically
+  handles alignment and accepts any size data with any address offset.
 
-  Block-Based Write Operation:
-  - Data is processed in 64-byte blocks for optimal hardware performance
-  - Block size (MC80_OSPI_BLOCK_WRITE_SIZE) is coordinated with MC80_OSPI_CFG_COMBINATION_FUNCTION
-  - 64-byte blocks match the combination function setting (MC80_OSPI_COMBINATION_FUNCTION_64BYTE)
+  Universal Write Operation Features:
+  - Accepts any destination address (automatic 64-byte alignment handling)
+  - Accepts any data size (no page boundary or alignment restrictions)
+  - Automatically creates temporary 64-byte buffer for unaligned addresses or page boundary protection
+  - Fills non-target bytes with 0xFF (erased flash state) in alignment buffer
+  - All data is written in optimized blocks (up to 64 bytes) for maximum hardware performance
+  - Automatically prevents crossing 256-byte page boundaries during write operations
   - Each block is written using a separate DMA transfer with write enable sequence
-  - Final partial block (if any) is handled separately to ensure complete data transfer
-  - Supports any total size from 1 byte to full page size (typically 256 bytes)
-  - Hardware combination function optimizes small write operations automatically
+
+  Automatic Page Boundary Protection Algorithm:
+  1. Current Address Tracking:
+     - Track current destination address throughout the transfer
+     - Calculate page position and alignment for each block independently
+     - Ensure each write operation respects both alignment and page boundaries
+
+  2. Adaptive Block Sizing:
+     - Use full 64-byte blocks when possible and safe
+     - Use smaller blocks (1-63 bytes) when approaching page boundaries
+     - Always ensure write operations stay within single 256-byte page
+     - Continue until all data is written with proper address progression
+
+  Example: Write 100 bytes starting at address 0x800000E0 (224 bytes into page)
+  - Page boundary at 0x80000100 (32 bytes remaining in page)
+  - Block 1: [0xFF×32, data[0-31]] → write 32 bytes at 0x800000E0 (stays in page)
+  - Block 2: [data[32-95]] → write 64 bytes at 0x80000100 (new page, full block)
+  - Block 3: [data[96-99], 0xFF×60] → write 64 bytes at 0x80000140 (final partial block)
 
   Protocol and Operation Method:
   - Uses memory-mapped write mode where flash appears as regular system memory
@@ -924,47 +942,19 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
   6. Starts DMA transfer in repeat mode for continuous data streaming
   7. Waits for DMA completion using RTOS event flags (asynchronous, 1-second timeout)
   8. Verifies transfer completion using infoGet API to check remaining transfer length
-  9. Handles combination write function for small transfers (< combination bytes)
-
-  RTOS Integration for DMA Completion:
-  - Uses ThreadX event flags for asynchronous DMA completion notification
-  - Task is suspended until DMA callback sets completion event flag
-  - Provides 1-second timeout protection against stuck DMA transfers
-  - More efficient than polling, allows CPU to perform other tasks during transfer
-  - Callback-driven completion detection for optimal performance
-
-  Write Enable and Status Management:
-  - Automatically sends Write Enable command before each block programming
-  - Verifies write enable status through status register polling
-  - Checks device busy status to prevent conflicts with ongoing operations
-  - Uses the current protocol's write enable and status commands
-
-  Page Boundary and Alignment Requirements:
-  - Enforces page boundary constraints (typically 256 bytes)
-  - Requires 8-byte alignment for CPU access compatibility
-  - Validates transfer size and alignment for hardware requirements
-  - Supports partial blocks at the end of data for flexible size handling
-
-  Hardware Integration:
-  - Leverages OSPI peripheral's automatic command generation
-  - Uses pre-configured timing and protocol settings from driver initialization
-  - Integrates with combination write and prefetch functions when enabled
-  - Maintains compatibility with both OSPI units and channels
 
   Parameters:
     p_ctrl     - Pointer to the control structure
     p_src      - Source data buffer
-    p_dest     - Destination address in flash (memory-mapped address)
-    byte_count - Number of bytes to write (any size from 1 to page size)
+    p_dest     - Destination address in flash (memory-mapped address, any alignment)
+    byte_count - Number of bytes to write (any size, no restrictions)
 
   Return:
     FSP_SUCCESS            - The flash was programmed successfully
-    FSP_ERR_ASSERTION      - p_ctrl, p_dest or p_src is NULL, or byte_count crosses a page boundary
+    FSP_ERR_ASSERTION      - p_ctrl, p_dest or p_src is NULL
     FSP_ERR_NOT_OPEN       - Driver is not opened
-    FSP_ERR_INVALID_SIZE   - Insufficient space remaining in page or write length is not a multiple of CPU access size when not using the DMAC
     FSP_ERR_DEVICE_BUSY    - Another Write/Erase transaction is in progress
     FSP_ERR_WRITE_FAILED   - Write operation failed
-    FSP_ERR_INVALID_ADDRESS- Destination or source is not aligned to CPU access alignment when not using the DMAC
     FSP_ERR_TIMEOUT        - Device ready timeout (1 second) or DMA completion timeout
     FSP_ERR_TRANSFER_ABORTED - DMA transfer did not complete properly
     FSP_ERR_NOT_INITIALIZED - RTOS event flags not initialized
@@ -973,19 +963,21 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 {
   // Variable declarations
   fsp_err_t                       err = FSP_SUCCESS;
-  uint32_t                        page_size;
-  uint32_t                        page_offset;
   R_XSPI0_Type                   *p_reg;
   T_mc80_ospi_extended_cfg const *p_cfg_extend;
   transfer_instance_t const      *p_transfer;
   dmac_extended_cfg_t const      *p_dmac_extend;
   R_DMAC0_Type                   *p_dma_reg;
   uint32_t                        bytes_remaining;
-  uint32_t                        offset;
   uint32_t                        current_block_size;
   transfer_properties_t           transfer_properties;
   uint8_t                         combo_bytes;
   fsp_err_t                       status_err;
+
+  // 64-byte alignment handling variables
+  uint32_t dest_addr = (uint32_t)p_dest;
+  uint8_t  temp_buffer[MC80_OSPI_BLOCK_WRITE_SIZE];  // 64-byte temporary buffer
+  uint32_t src_offset = 0;
 
   if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE)
   {
@@ -998,60 +990,131 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
       return FSP_ERR_NOT_OPEN;
     }
 
-    // Check that space remaining in page is sufficient for requested write size
-    page_size   = p_ctrl->p_cfg->page_size_bytes;
-    page_offset = (uint32_t)p_dest & (page_size - 1);
-    if ((page_size - page_offset) < byte_count)
+    // Additional safety check: ensure byte_count doesn't cause integer overflow
+    if (byte_count > UINT32_MAX - dest_addr)
     {
-      return FSP_ERR_INVALID_SIZE;
+      return FSP_ERR_ASSERTION;
     }
-
-    if ((byte_count & (MC80_OSPI_PRV_CPU_ACCESS_LENGTH - 1)) != 0)
-    {
-      return FSP_ERR_INVALID_SIZE;
-    }
-    if (((uint32_t)p_dest & (MC80_OSPI_PRV_CPU_ACCESS_ALIGNMENT - 1)) != 0)
-    {
-      return FSP_ERR_INVALID_ADDRESS;
-    }
-#if defined(__llvm__) && !defined(__ARMCC_VERSION)
-    // LLVM needs 32-bit aligned data
-    if (((uint32_t)p_src & (0x3)) != 0)
-    {
-      return FSP_ERR_INVALID_ADDRESS;
-    }
-#endif
   }
 
   // Initialize variables
-  p_reg            = p_ctrl->p_reg;
-  p_cfg_extend     = p_ctrl->p_cfg->p_extend;
-  p_transfer       = p_cfg_extend->p_lower_lvl_transfer;
+  p_reg                      = p_ctrl->p_reg;
+  p_cfg_extend               = p_ctrl->p_cfg->p_extend;
+  p_transfer                 = p_cfg_extend->p_lower_lvl_transfer;
 
   // Enable Octa-SPI DMA Bufferable Write
-  p_dmac_extend    = p_transfer->p_cfg->p_extend;
-  p_dma_reg        = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
-  p_dma_reg->DMBWR = R_DMAC0_DMBWR_BWE_Msk;
+  p_dmac_extend              = p_transfer->p_cfg->p_extend;
+  p_dma_reg                  = R_DMAC0 + (sizeof(R_DMAC0_Type) * p_dmac_extend->channel);
+  p_dma_reg->DMBWR           = R_DMAC0_DMBWR_BWE_Msk;
 
-  // Process data in 64-byte blocks for optimal performance
-  bytes_remaining  = byte_count;
-  offset           = 0;
+  // Process data with 64-byte alignment for optimal performance
+  bytes_remaining            = byte_count;
+
+  // Handle data transfer with automatic 64-byte alignment and page boundary protection
+  uint32_t current_dest_addr = dest_addr;  // Track current destination address
 
   while (bytes_remaining > 0)
   {
-    // Determine current block size (64 bytes or remaining bytes, whichever is smaller)
-    if (bytes_remaining >= MC80_OSPI_BLOCK_WRITE_SIZE)
+    uint8_t const *write_src;
+    uint8_t       *write_dest;
+
+    // Calculate position within current 256-byte page using current destination address
+    uint32_t page_offset              = current_dest_addr & (MC80_OSPI_PRV_PAGE_SIZE_BYTES - 1);
+    uint32_t bytes_to_page_end        = MC80_OSPI_PRV_PAGE_SIZE_BYTES - page_offset;
+
+    // Calculate 64-byte alignment for current address
+    uint32_t current_alignment_offset = current_dest_addr & (MC80_OSPI_BLOCK_WRITE_SIZE - 1);
+    uint32_t current_aligned_addr     = current_dest_addr & ~(MC80_OSPI_BLOCK_WRITE_SIZE - 1);
+
+    // Determine maximum safe block size (limited by page boundary and alignment)
+    uint32_t max_safe_block_size      = MC80_OSPI_BLOCK_WRITE_SIZE;
+    if (max_safe_block_size > bytes_to_page_end)
     {
-      current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
+      max_safe_block_size = bytes_to_page_end;
+    }
+
+    // Check if we need to handle alignment or use safe block size
+    if (current_alignment_offset != 0 || bytes_remaining < max_safe_block_size || max_safe_block_size < MC80_OSPI_BLOCK_WRITE_SIZE)
+    {
+      // Use temporary buffer for alignment, partial block, or page boundary protection
+      uint32_t bytes_to_copy;
+
+      // Check if current block can accommodate any data with alignment
+      if (max_safe_block_size <= current_alignment_offset)
+      {
+        // Case: Very close to page boundary, cannot fit any data in current block
+        // Calculate how many bytes we can actually write to reach the page boundary
+        bytes_to_copy = bytes_to_page_end;
+        if (bytes_to_copy > bytes_remaining)
+        {
+          bytes_to_copy = bytes_remaining;
+        }
+
+        // Use the remaining space in current page as block size
+        current_block_size = bytes_to_page_end;
+
+        // Set alignment offset to position data at the start of remaining space
+        current_alignment_offset = 0;
+
+        // Update destination to current address (no alignment needed)
+        current_aligned_addr = current_dest_addr;
+      }
+      else
+      {
+        // Normal case: can fit data within alignment constraints
+        bytes_to_copy = max_safe_block_size - current_alignment_offset;
+        if (bytes_to_copy > bytes_remaining)
+        {
+          bytes_to_copy = bytes_remaining;
+        }
+
+        // Set actual block size (may be less than 64 bytes for page boundaries)
+        current_block_size = max_safe_block_size;
+      }
+
+      // Validate buffer boundaries to prevent overflow
+      if (current_block_size > MC80_OSPI_BLOCK_WRITE_SIZE)
+      {
+        current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;  // Limit to buffer size
+      }
+
+      if (current_alignment_offset + bytes_to_copy > current_block_size)
+      {
+        err = FSP_ERR_ASSERTION;  // Data would overflow buffer
+        break;
+      }
+
+      // Fill buffer with 0xFF (erased flash state) using memset
+      memset(temp_buffer, 0xFF, current_block_size);
+
+      // Copy user data to aligned position in buffer using memcpy
+      memcpy(&temp_buffer[current_alignment_offset], &p_src[src_offset], bytes_to_copy);
+
+      write_src  = temp_buffer;
+      write_dest = (uint8_t *)current_aligned_addr;
+
+      // Update for next iteration
+      src_offset += bytes_to_copy;
+      bytes_remaining -= bytes_to_copy;
+      // For aligned buffer writes, move to next position after the actual block
+      current_dest_addr = current_aligned_addr + current_block_size;
     }
     else
     {
-      current_block_size = bytes_remaining;
+      // Direct transfer for aligned blocks that don't cross page boundaries
+      write_src          = p_src + src_offset;
+      write_dest         = (uint8_t *)current_dest_addr;
+      current_block_size = max_safe_block_size;
+
+      // Update for next iteration
+      src_offset += current_block_size;
+      bytes_remaining -= current_block_size;
+      current_dest_addr += current_block_size;
     }
 
     // Configure DMA for current block transfer
-    p_transfer->p_cfg->p_info->p_src                         = (uint8_t const *)p_src + offset;
-    p_transfer->p_cfg->p_info->p_dest                        = (uint8_t *)p_dest + offset;
+    p_transfer->p_cfg->p_info->p_src                         = write_src;
+    p_transfer->p_cfg->p_info->p_dest                        = write_dest;
     p_transfer->p_cfg->p_info->transfer_settings_word_b.size = TRANSFER_SIZE_1_BYTE;
     p_transfer->p_cfg->p_info->transfer_settings_word_b.mode = TRANSFER_MODE_NORMAL;
     p_transfer->p_cfg->p_info->length                        = (uint16_t)current_block_size;
@@ -1134,8 +1197,7 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     }
 
     // Move to next block
-    offset += current_block_size;
-    bytes_remaining -= current_block_size;
+    // Note: offset updates are handled in the alignment logic above
   }
 
   // Disable Octa-SPI DMA Bufferable Write
@@ -1145,20 +1207,35 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Erase a block or sector of flash. The byte_count must exactly match one of the erase sizes defined in T_mc80_ospi_cfg.
-  For chip erase, byte_count must be MC80_OSPI_ERASE_SIZE_CHIP_ERASE.
+  Universal flash erase function that accepts any size and address, automatically optimizing
+  erase operations by aligning to sector boundaries and using the most efficient commands.
+
+  This function performs automatic alignment and optimal erase sequence selection:
+  1. Aligns start address DOWN to sector boundary (4KB sectors)
+  2. Aligns end address UP to sector boundary
+  3. Calculates total erase size needed for complete coverage
+  4. Automatically selects optimal erase commands (64KB blocks vs 4KB sectors)
+  5. Executes erase operations in order of decreasing size for maximum efficiency
+
+  IMPORTANT: This function always erases complete sectors/blocks. Data outside the requested
+  range but within the same sectors will be lost. This is standard flash memory behavior.
+
+  Algorithm Example:
+  - Request: address=0x1800, byte_count=70KB
+  - Aligned: start=0x1000, end=0x13000 (total=72KB to erase)
+  - Operations: 1×64KB block (0x1000-0x11000) + 2×4KB sectors (0x11000-0x13000)
 
   Parameters:
     p_ctrl           - Pointer to the control structure
-    p_device_address - Address in flash to erase
-    byte_count       - Number of bytes to erase
+    p_device_address - Starting address in flash memory (will be aligned down to sector boundary)
+    byte_count       - Number of bytes to erase (region will be expanded to sector boundaries)
 
   Return:
-    FSP_SUCCESS         - The command to erase the flash was executed successfully
-    FSP_ERR_ASSERTION   - p_ctrl or p_device_address is NULL, byte_count doesn't match an erase size defined in T_mc80_ospi_cfg, or byte_count is set to 0
+    FSP_SUCCESS         - Flash erase completed successfully
+    FSP_ERR_ASSERTION   - Invalid parameters (NULL pointers or zero byte_count)
     FSP_ERR_NOT_OPEN    - Driver is not opened
-    FSP_ERR_DEVICE_BUSY - The device is busy
-    FSP_ERR_WRITE_FAILED- Write operation failed
+    FSP_ERR_DEVICE_BUSY - Flash device is busy with another operation
+    FSP_ERR_WRITE_FAILED - Erase operation failed or timeout occurred
 -----------------------------------------------------------------------------------------------------*/
 fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_device_address, uint32_t byte_count)
 {
@@ -1174,11 +1251,8 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
     }
   }
 
-  uint16_t erase_command = 0;
+  // Calculate chip address base for proper addressing
   uint32_t chip_address_base;
-  uint32_t chip_address;
-  bool     send_address = true;
-
   if (p_ctrl->channel)
   {
     chip_address_base = MC80_OSPI_DEVICE_1_START_ADDRESS;
@@ -1187,80 +1261,118 @@ fsp_err_t Mc80_ospi_erase(T_mc80_ospi_instance_ctrl *p_ctrl, uint8_t *const p_de
   {
     chip_address_base = MC80_OSPI_DEVICE_0_START_ADDRESS;
   }
-  chip_address                                       = (uint32_t)p_device_address - chip_address_base;
 
-  T_mc80_ospi_xspi_command_set const *p_cmd_set      = p_ctrl->p_cmd_set;
+  // Convert memory-mapped address to chip address
+  uint32_t start_address                                = (uint32_t)p_device_address - chip_address_base;
+  uint32_t end_address                                  = start_address + byte_count;
 
-  // Select the appropriate erase command from the command set
-  T_mc80_ospi_erase_command const *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
-  const uint8_t                    erase_list_length = p_cmd_set->p_erase_commands->length;
+  // Align addresses to sector boundaries (4KB sectors = 4096 bytes)
+  uint32_t start_aligned                                = start_address & ~(MX25UM25645G_SECTOR_SIZE - 1);                                 // Round down to 4KB boundary
+  uint32_t end_aligned                                  = (end_address + MX25UM25645G_SECTOR_SIZE - 1) & ~(MX25UM25645G_SECTOR_SIZE - 1);  // Round up to 4KB boundary
+
+  // Calculate total size to erase (always multiple of sector size)
+  uint32_t total_erase_size                             = end_aligned - start_aligned;
+  uint32_t current_address                              = start_aligned;
+
+  // Get command set for erase operations
+  T_mc80_ospi_xspi_command_set const *p_cmd_set         = p_ctrl->p_cmd_set;
+  T_mc80_ospi_erase_command const    *p_erase_list      = p_cmd_set->p_erase_commands->p_table;
+  const uint8_t                       erase_list_length = p_cmd_set->p_erase_commands->length;
+
+  // Find available erase commands (64KB block and 4KB sector)
+  uint16_t block_erase_command                          = 0;  // 64KB block erase
+  uint16_t sector_erase_command                         = 0;  // 4KB sector erase
 
   for (uint32_t index = 0; index < erase_list_length; index++)
   {
-    // If requested byte_count is supported by underlying flash, store the command
-    if (byte_count == p_erase_list[index].size)
+    if (p_erase_list[index].size == MX25UM25645G_BLOCK_SIZE)
     {
-      if (MC80_OSPI_ERASE_SIZE_CHIP_ERASE == byte_count)
-      {
-        // Don't send address for chip erase
-        send_address = false;
-      }
-
-      erase_command = p_erase_list[index].command;
-      break;
+      block_erase_command = p_erase_list[index].command;  // 64KB block erase
+    }
+    else if (p_erase_list[index].size == MX25UM25645G_SECTOR_SIZE)
+    {
+      sector_erase_command = p_erase_list[index].command;  // 4KB sector erase
     }
   }
 
-  if (MC80_OSPI_CFG_PARAM_CHECKING_ENABLE && 0U == erase_command)
+  // Process erase operations in optimal order (largest blocks first)
+  fsp_err_t err = FSP_SUCCESS;
+  while (total_erase_size > 0 && FSP_SUCCESS == err)
   {
-    return FSP_ERR_ASSERTION;
+    uint16_t current_command;
+    uint32_t current_erase_size;
+
+    // Select optimal erase command based on remaining size and alignment
+    if (total_erase_size >= MX25UM25645G_BLOCK_SIZE &&
+        (current_address & (MX25UM25645G_BLOCK_SIZE - 1)) == 0 &&
+        block_erase_command != 0)
+    {
+      // Use 64KB block erase (optimal for large areas)
+      current_command    = block_erase_command;
+      current_erase_size = MX25UM25645G_BLOCK_SIZE;
+    }
+    else if (sector_erase_command != 0)
+    {
+      // Use 4KB sector erase (for remaining areas)
+      current_command    = sector_erase_command;
+      current_erase_size = MX25UM25645G_SECTOR_SIZE;
+    }
+    else
+    {
+      // No suitable erase command found
+      return FSP_ERR_ASSERTION;
+    }
+
+    // Execute write enable command before erase
+    err = _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
+    if (FSP_SUCCESS != err)
+    {
+      break;
+    }
+
+    // Prepare direct command structure
+    T_mc80_ospi_direct_transfer direct_command = {
+      .command        = current_command,
+      .command_length = (uint8_t)p_cmd_set->command_bytes,
+      .address        = current_address,
+      .address_length = (uint8_t)(p_cmd_set->address_bytes + 1U),
+      .data_length    = 0,
+    };
+
+    // Execute erase command
+    _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Wait for erase operation completion using hardware periodic polling
+    fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK);
+    if (FSP_SUCCESS != status_err)
+    {
+      err = FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
+      break;
+    }
+
+    // Wait for periodic polling completion using hardware automation
+    status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
+    _Mc80_ospi_periodic_status_stop(p_ctrl);
+
+    if (FSP_SUCCESS != status_err)
+    {
+      err = status_err;  // Timeout or error in periodic polling
+      break;
+    }
+
+    // Move to next erase block
+    current_address += current_erase_size;
+    total_erase_size -= current_erase_size;
   }
 
-  fsp_err_t err = _Mc80_ospi_memory_mapped_write_enable(p_ctrl);
-  if (FSP_SUCCESS != err)
-  {
-    return err;
-  }
-
-  T_mc80_ospi_direct_transfer direct_command = {
-    .command        = erase_command,
-    .command_length = (uint8_t)p_cmd_set->command_bytes,
-    .address        = chip_address,
-    .address_length = 0,
-    .data_length    = 0,
-  };
-
-  if (send_address)
-  {
-    direct_command.address_length = (uint8_t)(p_cmd_set->address_bytes + 1U);
-  }
-
-  _Mc80_ospi_direct_transfer(p_ctrl, &direct_command, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
-
-  // Wait for erase operation completion using hardware periodic polling
-  fsp_err_t status_err = _Mc80_ospi_periodic_status_start(p_ctrl, MC80_OSPI_WAIT_WIP_CLEAR_EXPECTED, MC80_OSPI_WAIT_WIP_CLEAR_MASK);
-  if (FSP_SUCCESS != status_err)
-  {
-    return FSP_ERR_WRITE_FAILED;  // Failed to start periodic status polling
-  }
-
-  // Wait for periodic polling completion using hardware automation
-  status_err = Mc80_ospi_cmdcmp_wait_for_completion(MS_TO_TICKS(OSPI_CMDCMP_COMPLETION_TIMEOUT_MS));
-  _Mc80_ospi_periodic_status_stop(p_ctrl);
-
-  if (FSP_SUCCESS != status_err)
-  {
-    return status_err;  // Timeout or error in periodic polling
-  }
-
-  // If prefetch is enabled, flush the prefetch caches after an erase
-  if (MC80_OSPI_CFG_PREFETCH_FUNCTION)
+  // If prefetch is enabled, flush the prefetch caches after erase operations
+  if (MC80_OSPI_CFG_PREFETCH_FUNCTION && FSP_SUCCESS == err)
   {
     R_XSPI0_Type *const p_reg = p_ctrl->p_reg;
     p_reg->BMCTL1             = MC80_OSPI_PRV_BMCTL1_CLEAR_PREFETCH_MASK;
   }
 
-  return FSP_SUCCESS;
+  return err;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -2486,9 +2598,9 @@ static void _Ospi_dma_event_flags_cleanup(void)
   DMA completion. Tasks can use tx_event_flags_get() to wait for specific events.
 
   Example usage in task:
-    ULONG actual_flags;
-    UINT result = tx_event_flags_get(&flags_group, OSPI_DMA_EVENT_TRANSFER_COMPLETE,
-                                     TX_OR_CLEAR, &actual_flags, TX_WAIT_FOREVER);
+  ULONG actual_flags;
+  UINT result = tx_event_flags_get(&flags_group, OSPI_DMA_EVENT_TRANSFER_COMPLETE,
+                                   TX_OR_CLEAR, &actual_flags, TX_WAIT_FOREVER);
 
   Parameters:
     pp_event_flags - Pointer to store the event flags group pointer
