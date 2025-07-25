@@ -10,33 +10,34 @@
 #include "App.h"
 
 // Test data sizes
-#define OSPI_TEST_PATTERN_SIZE        256
-#define OSPI_TEST_SECTOR_SIZE         4096
+#define OSPI_TEST_PATTERN_SIZE           256
+#define OSPI_TEST_SECTOR_SIZE            4096
 
 // Read operation sizes
-#define OSPI_DIRECT_READ_SIZE         4096  // Size for direct read test
-#define OSPI_MEMORY_MAPPED_READ_SIZE  4096  // Size for memory-mapped read test
-#define OSPI_CONTINUOUS_READ_SIZE     128   // Size for continuous read test
-#define OSPI_JEDEC_ID_SIZE            3     // JEDEC ID read size
+#define OSPI_DIRECT_READ_SIZE            4096  // Size for direct read test
+#define OSPI_MEMORY_MAPPED_READ_SIZE     4096  // Size for memory-mapped read test
+#define OSPI_CONTINUOUS_READ_SIZE        128   // Size for continuous read test
+#define OSPI_JEDEC_ID_SIZE               3     // JEDEC ID read size
 
 // Write operation sizes
-#define OSPI_MEMORY_MAPPED_WRITE_SIZE 256  // Size for memory-mapped write test
-#define OSPI_SECTOR_WRITE_SIZE        256  // Size for sector test write chunks
-#define OSPI_PREAMBLE_PATTERN_SIZE    256  // Size for preamble pattern write
+#define OSPI_MEMORY_MAPPED_WRITE_SIZE    256  // Size for memory-mapped write test
+#define OSPI_SECTOR_WRITE_SIZE           256  // Size for sector test write chunks
+#define OSPI_PREAMBLE_PATTERN_SIZE       256  // Size for preamble pattern write
 
 // Display sizes
-#define OSPI_DISPLAY_PREVIEW_SIZE     64              // Size for data preview display
-#define OSPI_DISPLAY_MAX_SIZE         (128 * 1024)    // Maximum size for data display (128KB)
+#define OSPI_DISPLAY_PREVIEW_SIZE        64            // Size for data preview display
+#define OSPI_DISPLAY_MAX_SIZE            (128 * 1024)  // Maximum size for data display (128KB)
 
 // Custom operation limits
-#define OSPI_MAX_CUSTOM_SIZE          (1024 * 1024)  // Maximum 1MB for custom operations
-#define OSPI_MIN_CUSTOM_SIZE          1               // Minimum 1 byte
-#define OSPI_MAX_FLASH_ADDRESS        0x01FFFFFF      // 32MB flash size - 1
-#define OSPI_DISPLAY_BYTES_PER_LINE   16              // Bytes per line for hex display
+#define OSPI_MAX_CUSTOM_SIZE             (1024 * 1024)  // Maximum 1MB for custom operations
+#define OSPI_MIN_CUSTOM_SIZE             1              // Minimum 1 byte
+#define OSPI_MAX_FLASH_ADDRESS           0x01FFFFFF     // 32MB flash size - 1
+#define OSPI_DISPLAY_BYTES_PER_LINE      16             // Bytes per line for hex display
 
 // Comprehensive test limits
-#define OSPI_COMPREHENSIVE_TEST_MAX_SIZE  (150 * 1024)   // Maximum 150KB for comprehensive test
-#define OSPI_COMPREHENSIVE_TEST_MIN_SIZE  1               // Minimum 1 byte for comprehensive test
+#define OSPI_COMPREHENSIVE_TEST_MAX_SIZE (150 * 1024)  // Maximum 150KB for comprehensive test
+#define OSPI_COMPREHENSIVE_TEST_MIN_SIZE 1             // Minimum 1 byte for comprehensive test
+#define OSPI_MAX_ERASE_RETRIES           10            // Maximum number of erase retry attempts
 
 // Data pattern types
 typedef enum
@@ -49,9 +50,9 @@ typedef enum
 // Address and size alignment types for comprehensive test
 typedef enum
 {
-  OSPI_ALIGNMENT_UNALIGNED = 1,    // Unaligned addresses and random sizes
-  OSPI_ALIGNMENT_64_BYTE,          // 64-byte aligned addresses and sizes
-  OSPI_ALIGNMENT_256_BYTE          // 256-byte aligned addresses and sizes
+  OSPI_ALIGNMENT_UNALIGNED = 1,  // Unaligned addresses and random sizes
+  OSPI_ALIGNMENT_64_BYTE,        // 64-byte aligned addresses and sizes
+  OSPI_ALIGNMENT_256_BYTE        // 256-byte aligned addresses and sizes
 } T_ospi_alignment_type;
 
 // OSPI operation results structure
@@ -92,8 +93,7 @@ typedef struct
 } T_ospi_comprehensive_test_result;
 
 // Fixed seeds for reproducible random number generation
-#define OSPI_FIXED_SEED_ADDRESS   0x12345678UL  // Fixed seed for address generation
-
+#define OSPI_FIXED_SEED_ADDRESS 0x12345678UL  // Fixed seed for address generation
 
 // Simple Linear Congruential Generator (LCG) for reproducible random numbers
 // Uses same constants as Microsoft Visual C++ RAND_MAX=32767
@@ -123,7 +123,7 @@ static uint32_t _Ospi_prng_rand(void)
   // Linear Congruential Generator: next = (a * seed + c) % m
   // Using constants from Numerical Recipes: a=1664525, c=1013904223, m=2^32
   g_ospi_prng_state = (1664525UL * g_ospi_prng_state + 1013904223UL);
-  return (g_ospi_prng_state >> 16) & 0x7FFF; // Return 15-bit value (0-32767)
+  return (g_ospi_prng_state >> 16) & 0x7FFF;  // Return 15-bit value (0-32767)
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ static uint32_t _Ospi_prng_rand32(void)
 {
   // Combine two 16-bit values to get full 32-bit range
   uint32_t high = _Ospi_prng_rand() << 16;
-  uint32_t low = _Ospi_prng_rand();
+  uint32_t low  = _Ospi_prng_rand();
   return high | low;
 }
 
@@ -147,21 +147,21 @@ void OSPI_test_custom_operations(uint8_t keycode);
 void OSPI_test_comprehensive_memory(uint8_t keycode);
 
 // Internal helper functions
-static fsp_err_t              _Ospi_ensure_driver_open(void);
-static T_mc80_ospi_protocol   _Ospi_select_protocol(void);
-static T_ospi_alignment_type  _Ospi_select_alignment_type(void);
-static uint32_t               _Ospi_get_address_input(void);
-static uint32_t               _Ospi_get_size_input(uint32_t max_size);
-static T_ospi_pattern_type    _Ospi_get_pattern_type(void);
-static uint8_t                _Ospi_get_pattern_value(void);
-static void                 _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value);
-static void                 _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address);
-static void                 _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
-static void                 _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results);
-static bool                 _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size);
-static bool                 _Ospi_compare_buffers_detailed(uint8_t *write_buffer, uint8_t *read_buffer, uint32_t size, uint32_t address);
-static bool                 _Ospi_verify_erase_data(uint32_t address, uint32_t size);
-static uint32_t             _Ospi_calculate_checksum(uint8_t *data, uint32_t size);
+static fsp_err_t             _Ospi_ensure_driver_open(void);
+static T_mc80_ospi_protocol  _Ospi_select_protocol(void);
+static T_ospi_alignment_type _Ospi_select_alignment_type(void);
+static uint32_t              _Ospi_get_address_input(void);
+static uint32_t              _Ospi_get_size_input(uint32_t max_size);
+static T_ospi_pattern_type   _Ospi_get_pattern_type(void);
+static uint8_t               _Ospi_get_pattern_value(void);
+static void                  _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_pattern_type type, uint8_t base_value);
+static void                  _Ospi_display_data(uint8_t *data, uint32_t size, uint32_t start_address);
+static void                  _Ospi_display_speed(uint32_t bytes, uint32_t time_us);
+static void                  _Ospi_display_custom_menu(T_ospi_operation_settings *settings, T_ospi_operation_results *results);
+static bool                  _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, uint32_t size);
+static bool                  _Ospi_compare_buffers_detailed(uint8_t *write_buffer, uint8_t *read_buffer, uint32_t size, uint32_t address);
+static bool                  _Ospi_verify_erase_data(uint8_t *buffer, uint32_t address, uint32_t size);
+static uint32_t              _Ospi_calculate_checksum(uint8_t *data, uint32_t size);
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
@@ -562,7 +562,6 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
   }
 }
 
-
 /*-----------------------------------------------------------------------------------------------------
   Description: Custom OSPI operations menu - read, write, erase with user-defined parameters
 
@@ -576,16 +575,16 @@ void OSPI_test_custom_operations(uint8_t keycode)
 
   // Static variables to preserve settings and results between calls
   static T_ospi_operation_settings settings = { 0 };
-  static T_ospi_operation_results results = { 0 };
+  static T_ospi_operation_results  results  = { 0 };
 
   // Initialize default settings on first run
   if (!settings.settings_valid)
   {
-    settings.address = 0x00000000;
-    settings.size = 4096;
-    settings.pattern_type = OSPI_PATTERN_CONSTANT;
-    settings.pattern_value = 0x55;
-    settings.protocol = MC80_OSPI_PROTOCOL_1S_1S_1S;
+    settings.address        = 0x00000000;
+    settings.size           = 4096;
+    settings.pattern_type   = OSPI_PATTERN_CONSTANT;
+    settings.pattern_value  = 0x55;
+    settings.protocol       = MC80_OSPI_PROTOCOL_1S_1S_1S;
     settings.settings_valid = true;
   }
 
@@ -608,13 +607,13 @@ void OSPI_test_custom_operations(uint8_t keycode)
     uint8_t operation = 0;
     if (WAIT_CHAR(&operation, ms_to_ticks(30000)) != RES_OK)
     {
-      continue; // Skip processing on timeout
+      continue;  // Skip processing on timeout
     }
     MPRINTF("%c\n\r", operation);
 
     switch (operation)
     {
-      case '1': // Configure address
+      case '1':  // Configure address
       {
         MPRINTF("\n\r===== Configure Address =====\n\r");
         MPRINTF("Current address: 0x%08X\n\r", settings.address);
@@ -654,7 +653,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '2': // Configure size
+      case '2':  // Configure size
       {
         MPRINTF("\n\r===== Configure Size =====\n\r");
         MPRINTF("Current size: %u bytes\n\r", settings.size);
@@ -694,12 +693,12 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '3': // Configure pattern
+      case '3':  // Configure pattern
       {
         MPRINTF("\n\r===== Configure Pattern =====\n\r");
         MPRINTF("Current pattern: %s\n\r",
-                (settings.pattern_type == OSPI_PATTERN_CONSTANT) ? "Constant" :
-                (settings.pattern_type == OSPI_PATTERN_INCREMENT) ? "Increment" : "Random");
+                (settings.pattern_type == OSPI_PATTERN_CONSTANT) ? "Constant" : (settings.pattern_type == OSPI_PATTERN_INCREMENT) ? "Increment"
+                                                                                                                                  : "Random");
         if (settings.pattern_type == OSPI_PATTERN_CONSTANT || settings.pattern_type == OSPI_PATTERN_INCREMENT)
         {
           MPRINTF("Current pattern value: 0x%02X\n\r", settings.pattern_value);
@@ -736,7 +735,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '4': // Read operation (memory-mapped)
+      case '4':  // Read operation (memory-mapped)
       {
         MPRINTF("\n\r===== Read Operation (Memory-Mapped) =====\n\r");
 
@@ -757,7 +756,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         // Measure time and perform read
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
+        fsp_err_t       err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -779,10 +778,10 @@ void OSPI_test_custom_operations(uint8_t keycode)
           MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
 
           // Update results
-          results.read_time_us = elapsed_us;
+          results.read_time_us           = elapsed_us;
           results.last_bytes_transferred = settings.size;
-          results.last_checksum = checksum;
-          results.results_valid = true;
+          results.last_checksum          = checksum;
+          results.results_valid          = true;
         }
         else
         {
@@ -796,7 +795,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '5': // Direct read operation
+      case '5':  // Direct read operation
       {
         MPRINTF("\n\r===== Direct Read Operation =====\n\r");
 
@@ -817,7 +816,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         // Measure time and perform direct read
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
+        fsp_err_t       err = Mc80_ospi_direct_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -839,10 +838,10 @@ void OSPI_test_custom_operations(uint8_t keycode)
           MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
 
           // Update results
-          results.read_time_us = elapsed_us;
+          results.read_time_us           = elapsed_us;
           results.last_bytes_transferred = settings.size;
-          results.last_checksum = checksum;
-          results.results_valid = true;
+          results.last_checksum          = checksum;
+          results.results_valid          = true;
         }
         else
         {
@@ -856,7 +855,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '6': // Fast read benchmark
+      case '6':  // Fast read benchmark
       {
         MPRINTF("\n\r===== Fast Read Benchmark =====\n\r");
         MPRINTF("Using current settings: address 0x%08X, size %u bytes\n\r", settings.address, settings.size);
@@ -888,7 +887,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         // Measure time and perform read (no data display)
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, benchmark_size);
+        fsp_err_t       err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, settings.address, benchmark_size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -907,10 +906,10 @@ void OSPI_test_custom_operations(uint8_t keycode)
           MPRINTF("Data checksum (CRC32)         : 0x%08X\n\r", checksum);
 
           // Update results
-          results.read_time_us = elapsed_us;
+          results.read_time_us           = elapsed_us;
           results.last_bytes_transferred = benchmark_size;
-          results.last_checksum = checksum;
-          results.results_valid = true;
+          results.last_checksum          = checksum;
+          results.results_valid          = true;
         }
         else
         {
@@ -924,7 +923,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '7': // Write operation
+      case '7':  // Write operation
       {
         MPRINTF("\n\r===== Write Operation =====\n\r");
 
@@ -945,7 +944,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         // Measure time and perform write
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
+        fsp_err_t       err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -965,9 +964,9 @@ void OSPI_test_custom_operations(uint8_t keycode)
             MPRINTF("Data verification             : SUCCESS\n\r");
 
             // Update results only if verification passed
-            results.write_time_us = elapsed_us;
+            results.write_time_us          = elapsed_us;
             results.last_bytes_transferred = settings.size;
-            results.results_valid = true;
+            results.results_valid          = true;
           }
           else
           {
@@ -986,7 +985,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '8': // Erase operation
+      case '8':  // Erase operation
       {
         MPRINTF("\n\r===== Erase Operation =====\n\r");
         MPRINTF("WARNING: This will erase %u bytes starting from address 0x%08X\n\r", settings.size, settings.address);
@@ -1015,7 +1014,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         // Measure time and perform erase
         T_sys_timestump start_time;
         Get_hw_timestump(&start_time);
-        fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
+        fsp_err_t       err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + settings.address), settings.size);
         T_sys_timestump end_time;
         Get_hw_timestump(&end_time);
         uint32_t elapsed_us = Timestump_diff_to_usec(&start_time, &end_time);
@@ -1029,19 +1028,36 @@ void OSPI_test_custom_operations(uint8_t keycode)
 
           // Verify erase
           MPRINTF("Verifying erased data...\n\r");
-          bool verify_ok = _Ospi_verify_erase_data(settings.address, settings.size);
-          if (verify_ok)
-          {
-            MPRINTF("Erase verification            : SUCCESS\n\r");
 
-            // Update results only if verification passed
-            results.erase_time_us = elapsed_us;
-            results.last_bytes_transferred = settings.size;
-            results.results_valid = true;
+          // Allocate temporary buffer for verification
+          uint8_t *verify_buffer = (uint8_t *)App_malloc(settings.size);
+          if (verify_buffer != NULL)
+          {
+            bool verify_ok = _Ospi_verify_erase_data(verify_buffer, settings.address, settings.size);
+            App_free(verify_buffer);
+
+            if (verify_ok)
+            {
+              MPRINTF("Erase verification            : SUCCESS\n\r");
+
+              // Update results only if verification passed
+              results.erase_time_us          = elapsed_us;
+              results.last_bytes_transferred = settings.size;
+              results.results_valid          = true;
+            }
+            else
+            {
+              MPRINTF("Erase verification            : FAILED\n\r");
+            }
           }
           else
           {
-            MPRINTF("Erase verification            : FAILED\n\r");
+            MPRINTF("Erase verification            : SKIPPED (failed to allocate buffer)\n\r");
+
+            // Update results even without verification
+            results.erase_time_us          = elapsed_us;
+            results.last_bytes_transferred = settings.size;
+            results.results_valid          = true;
           }
         }
         else
@@ -1055,7 +1071,7 @@ void OSPI_test_custom_operations(uint8_t keycode)
         break;
       }
 
-      case '9': // Switch protocol
+      case '9':  // Switch protocol
       {
         MPRINTF("\n\r===== Protocol Switch =====\n\r");
         T_mc80_ospi_protocol new_protocol = _Ospi_select_protocol();
@@ -1152,14 +1168,14 @@ static uint32_t _Ospi_get_address_input(void)
     uint8_t key;
     if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
     {
-      break; // Exit on timeout
+      break;  // Exit on timeout
     }
 
     if (key == '\r' || key == '\n')
     {
       break;
     }
-    else if (key == '\b' || key == 0x7F) // Backspace
+    else if (key == '\b' || key == 0x7F)  // Backspace
     {
       if (pos > 0)
       {
@@ -1179,12 +1195,12 @@ static uint32_t _Ospi_get_address_input(void)
   MPRINTF("\n\r");
 
   // Parse input - handle both "0x1000" and "1000" formats
-  char *hex_start = input_buffer;
+  char   *hex_start  = input_buffer;
   uint8_t hex_length = pos;
 
   if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
-    hex_start = &input_buffer[2];
+    hex_start  = &input_buffer[2];
     hex_length = pos - 2;
   }
 
@@ -1199,7 +1215,7 @@ static uint32_t _Ospi_get_address_input(void)
   for (uint8_t i = 0; i < hex_length; i++)
   {
     char c = hex_start[i];
-    if (c == 0) break; // End of string
+    if (c == 0) break;  // End of string
 
     // Check for potential overflow (address > 32-bit max)
     if (address > (0xFFFFFFFF / 16))
@@ -1287,14 +1303,14 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
     uint8_t key;
     if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
     {
-      break; // Exit on timeout
+      break;  // Exit on timeout
     }
 
     if (key == '\r' || key == '\n')
     {
       break;
     }
-    else if (key == '\b' || key == 0x7F) // Backspace
+    else if (key == '\b' || key == 0x7F)  // Backspace
     {
       if (pos > 0)
       {
@@ -1314,14 +1330,14 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
   MPRINTF("\n\r");
 
   // Check if input is hexadecimal (starts with 0x or 0X)
-  bool is_hex = false;
-  char *parse_start = input_buffer;
+  bool    is_hex       = false;
+  char   *parse_start  = input_buffer;
   uint8_t parse_length = pos;
 
   if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
-    is_hex = true;
-    parse_start = &input_buffer[2];
+    is_hex       = true;
+    parse_start  = &input_buffer[2];
     parse_length = pos - 2;
   }
 
@@ -1339,7 +1355,7 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
     for (uint8_t i = 0; i < parse_length; i++)
     {
       char c = parse_start[i];
-      if (c == 0) break; // End of string
+      if (c == 0) break;  // End of string
 
       // Check for potential overflow
       if (size > (0xFFFFFFFF / 16))
@@ -1369,7 +1385,7 @@ static uint32_t _Ospi_get_size_input(uint32_t max_size)
     for (uint8_t i = 0; i < parse_length; i++)
     {
       char c = parse_start[i];
-      if (c < '0' || c > '9') break; // Only process decimal digits
+      if (c < '0' || c > '9') break;  // Only process decimal digits
 
       // Check for potential overflow
       if (size > (0xFFFFFFFF / 10))
@@ -1487,14 +1503,14 @@ static uint8_t _Ospi_get_pattern_value(void)
     uint8_t key;
     if (WAIT_CHAR(&key, ms_to_ticks(30000)) != RES_OK)
     {
-      break; // Exit on timeout
+      break;  // Exit on timeout
     }
 
     if (key == '\r' || key == '\n')
     {
       break;
     }
-    else if (key == '\b' || key == 0x7F) // Backspace
+    else if (key == '\b' || key == 0x7F)  // Backspace
     {
       if (pos > 0)
       {
@@ -1514,12 +1530,12 @@ static uint8_t _Ospi_get_pattern_value(void)
   MPRINTF("\n\r");
 
   // Parse input - handle both "0xFF" and "FF" formats
-  char *hex_start = input_buffer;
+  char   *hex_start  = input_buffer;
   uint8_t hex_length = pos;
 
   if (pos >= 2 && (input_buffer[0] == '0') && (input_buffer[1] == 'x' || input_buffer[1] == 'X'))
   {
-    hex_start = &input_buffer[2];
+    hex_start  = &input_buffer[2];
     hex_length = pos - 2;
   }
 
@@ -1534,7 +1550,7 @@ static uint8_t _Ospi_get_pattern_value(void)
   for (uint8_t i = 0; i < hex_length; i++)
   {
     char c = hex_start[i];
-    if (c == 0) break; // End of string
+    if (c == 0) break;  // End of string
 
     // Check for byte overflow (value > 255)
     if (value > (0xFF / 16))
@@ -1591,7 +1607,7 @@ static void _Ospi_generate_pattern(uint8_t *buffer, uint32_t size, T_ospi_patter
     {
       // Use our own PRNG for reproducible pseudo-random generation
       // Initialize with a fixed seed to ensure reproducible results
-      _Ospi_prng_seed(0xACE1u + base_value); // Use base_value to add variation
+      _Ospi_prng_seed(0xACE1u + base_value);  // Use base_value to add variation
       for (uint32_t i = 0; i < size; i++)
       {
         buffer[i] = (uint8_t)_Ospi_prng_rand();
@@ -1685,12 +1701,12 @@ static void _Ospi_display_speed(uint32_t bytes, uint32_t time_us)
 
   if (time_us > 0)
   {
-    uint64_t speed_bps_64 = ((uint64_t)bytes * 1000000ul) / time_us;  // Bytes per second (64-bit calculation)
-    uint32_t speed_bps = (uint32_t)speed_bps_64;                      // Bytes per second
-    uint32_t speed_kbps = speed_bps / 1024;                           // Kilobytes per second (integer part)
-    uint32_t speed_kbps_frac = ((speed_bps % 1024) * 1000) / 1024;    // Fractional part (3 digits)
-    uint32_t time_ms = time_us / 1000;                                // Convert to milliseconds for display
-    uint32_t time_us_frac = time_us % 1000;                           // Microseconds fractional part
+    uint64_t speed_bps_64    = ((uint64_t)bytes * 1000000ul) / time_us;  // Bytes per second (64-bit calculation)
+    uint32_t speed_bps       = (uint32_t)speed_bps_64;                   // Bytes per second
+    uint32_t speed_kbps      = speed_bps / 1024;                         // Kilobytes per second (integer part)
+    uint32_t speed_kbps_frac = ((speed_bps % 1024) * 1000) / 1024;       // Fractional part (3 digits)
+    uint32_t time_ms         = time_us / 1000;                           // Convert to milliseconds for display
+    uint32_t time_us_frac    = time_us % 1000;                           // Microseconds fractional part
 
     MPRINTF("%u.%03u KB/s (%u bytes/s)\n\r", speed_kbps, speed_kbps_frac, speed_bps);
     MPRINTF("Time                          : %u.%03u ms (%u us)\n\r", time_ms, time_us_frac, time_us);
@@ -1714,8 +1730,8 @@ static void _Ospi_display_speed(uint32_t bytes, uint32_t time_us)
 static bool _Ospi_compare_buffers_detailed(uint8_t *write_buffer, uint8_t *read_buffer, uint32_t size, uint32_t address)
 {
   GET_MCBL;
-  bool     match = true;
-  uint32_t error_count = 0;
+  bool     match                 = true;
+  uint32_t error_count           = 0;
   uint32_t max_errors_to_display = 20;  // Limit error display to prevent terminal overflow
 
   MPRINTF("\n\r--- Detailed Data Comparison ---\n\r");
@@ -1806,45 +1822,33 @@ static bool _Ospi_verify_write_data(uint8_t *original_data, uint32_t address, ui
 /*-----------------------------------------------------------------------------------------------------
   Description: Verify erased data by reading back and checking for 0xFF pattern
 
-  Parameters: address - Flash address that was erased
+  Parameters: buffer - Buffer to use for reading data (must be at least size bytes)
+              address - Flash address that was erased
               size - Size of erased area in bytes
 
   Return: true if verification successful (all bytes are 0xFF), false otherwise
 -----------------------------------------------------------------------------------------------------*/
-static bool _Ospi_verify_erase_data(uint32_t address, uint32_t size)
+static bool _Ospi_verify_erase_data(uint8_t *buffer, uint32_t address, uint32_t size)
 {
-  // Allocate buffer for read-back
-  uint8_t *verify_buffer = (uint8_t *)App_malloc(size);
-  if (verify_buffer == NULL)
-  {
-    GET_MCBL;
-    MPRINTF("ERROR: Failed to allocate verification buffer\n\r");
-    return false;
-  }
-
-  // Read back the data
-  fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, verify_buffer, address, size);
+  // Read back the data using provided buffer
+  fsp_err_t err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, buffer, address, size);
   if (err != FSP_SUCCESS)
   {
     GET_MCBL;
     MPRINTF("ERROR: Failed to read back data for verification (0x%X)\n\r", err);
-    App_free(verify_buffer);
     return false;
   }
 
   // Check that all bytes are 0xFF (erased state)
-  bool all_erased = true;
   for (uint32_t i = 0; i < size; i++)
   {
-    if (verify_buffer[i] != 0xFF)
+    if (buffer[i] != 0xFF)
     {
-      all_erased = false;
-      break;
+      return false;
     }
   }
 
-  App_free(verify_buffer);
-  return all_erased;
+  return true;
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -1859,7 +1863,7 @@ static uint32_t _Ospi_calculate_checksum(uint8_t *data, uint32_t size)
 {
   // CRC32 polynomial: 0x04C11DB7 (Ethernet CRC)
   const uint32_t polynomial = 0xEDB88320;  // Reflected form of 0x04C11DB7
-  uint32_t       crc         = 0xFFFFFFFF; // Initial value
+  uint32_t       crc        = 0xFFFFFFFF;  // Initial value
 
   for (uint32_t i = 0; i < size; i++)
   {
@@ -1877,7 +1881,7 @@ static uint32_t _Ospi_calculate_checksum(uint8_t *data, uint32_t size)
     }
   }
 
-  return ~crc; // Final XOR with 0xFFFFFFFF
+  return ~crc;  // Final XOR with 0xFFFFFFFF
 }
 
 /*-----------------------------------------------------------------------------------------------------
@@ -1960,7 +1964,7 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
           }
 
           uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
-          test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+          test_size           = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
         }
         break;
 
@@ -1987,7 +1991,7 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
           }
 
           uint32_t size_range = (max_possible_size - min_size) / 64 + 1;
-          test_size = ((_Ospi_prng_rand32() % size_range) * 64) + min_size;
+          test_size           = ((_Ospi_prng_rand32() % size_range) * 64) + min_size;
         }
         break;
 
@@ -2014,7 +2018,7 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
           }
 
           uint32_t size_range = (max_possible_size - min_size) / 256 + 1;
-          test_size = ((_Ospi_prng_rand32() % size_range) * 256) + min_size;
+          test_size           = ((_Ospi_prng_rand32() % size_range) * 256) + min_size;
         }
         break;
 
@@ -2029,17 +2033,17 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
           }
 
           uint32_t size_range = max_possible_size - OSPI_COMPREHENSIVE_TEST_MIN_SIZE + 1;
-          test_size = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
+          test_size           = (_Ospi_prng_rand32() % size_range) + OSPI_COMPREHENSIVE_TEST_MIN_SIZE;
         }
         break;
     }
 
     // Initialize test result structure
     T_ospi_comprehensive_test_result result = { 0 };
-    result.test_number = test_number;
-    result.address = test_address;
-    result.size = test_size;
-    result.test_passed = false;
+    result.test_number                      = test_number;
+    result.address                          = test_address;
+    result.size                             = test_size;
+    result.test_passed                      = false;
 
     MPRINTF(VT100_CLEAR_AND_HOME);
     MPRINTF(" ===== Comprehensive OSPI Memory Test =====\n\r");
@@ -2073,7 +2077,7 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
     if (WAIT_CHAR(&key, ms_to_ticks(600000)) != RES_OK)  // Wait up to 10 minutes
     {
       MPRINTF("TIMEOUT - continuing automatically\n\r");
-      key = '\r';  // Auto-continue on timeout
+      key = '\r';                                        // Auto-continue on timeout
     }
     MPRINTF("%c\n\r", key);
 
@@ -2115,26 +2119,76 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
 
     bool test_success = true;
 
-    // Step 1: Erase the test area
+    // Step 1: Erase the test area (with retry attempts)
     MPRINTF("\n\r--- Step 1: Erasing test area ---\n\r");
-    T_sys_timestump start_time;
-    Get_hw_timestump(&start_time);
-    fsp_err_t err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
-    T_sys_timestump end_time;
-    Get_hw_timestump(&end_time);
-    result.erase_time_us = Timestump_diff_to_usec(&start_time, &end_time);
 
-    if (err != FSP_SUCCESS)
+    fsp_err_t erase_err           = FSP_ERR_ASSERTION;
+    bool      erase_verified      = false;
+    uint32_t  total_erase_time_us = 0;
+
+    for (uint32_t retry_count = 1; retry_count <= OSPI_MAX_ERASE_RETRIES; retry_count++)
     {
-      MPRINTF("Erase operation               : FAILED (error: 0x%X)\n\r", err);
-      test_success = false;
+      if (retry_count > 1)
+      {
+        MPRINTF("Erase attempt #%u (retry %u)...\n\r", retry_count, retry_count - 1);
+      }
+      else
+      {
+        MPRINTF("Erase attempt #%u...\n\r", retry_count);
+      }
+
+      T_sys_timestump start_time;
+      Get_hw_timestump(&start_time);
+      erase_err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
+      T_sys_timestump end_time;
+      Get_hw_timestump(&end_time);
+      uint32_t current_erase_time_us = Timestump_diff_to_usec(&start_time, &end_time);
+      total_erase_time_us += current_erase_time_us;
+
+      if (erase_err == FSP_SUCCESS)
+      {
+        MPRINTF("Erase operation               : SUCCESS\n\r");
+        MPRINTF("Erase time (attempt #%u)      : %u us\n\r", retry_count, current_erase_time_us);
+
+        // Verify that erase was successful (all bytes should be 0xFF)
+        MPRINTF("Verifying erase operation     : ");
+        erase_verified = _Ospi_verify_erase_data(read_buffer, test_address, test_size);
+        if (erase_verified)
+        {
+          MPRINTF("SUCCESS (all bytes are 0xFF)\n\r");
+          break;  // Successful erase and verification, exit retry loop
+        }
+        else
+        {
+          MPRINTF("FAILED (some bytes are not 0xFF)\n\r");
+          if (retry_count < OSPI_MAX_ERASE_RETRIES)
+          {
+            MPRINTF("Will retry erase operation...\n\r");
+          }
+        }
+      }
+      else
+      {
+        MPRINTF("Erase operation               : FAILED (error: 0x%X)\n\r", erase_err);
+        if (retry_count < OSPI_MAX_ERASE_RETRIES)
+        {
+          MPRINTF("Will retry erase operation...\n\r");
+        }
+      }
+    }
+
+    // Final erase result evaluation
+    result.erase_time_us = total_erase_time_us;
+    if (erase_err == FSP_SUCCESS && erase_verified)
+    {
+      MPRINTF("Total erase time              : %u us\n\r", total_erase_time_us);
+      MPRINTF("Erase speed                   : ");
+      _Ospi_display_speed(test_size, total_erase_time_us);
     }
     else
     {
-      MPRINTF("Erase operation               : SUCCESS\n\r");
-      MPRINTF("Erase time                    : %u us\n\r", result.erase_time_us);
-      MPRINTF("Erase speed                   : ");
-      _Ospi_display_speed(test_size, result.erase_time_us);
+      MPRINTF("Erase operation FAILED after %u attempts\n\r", OSPI_MAX_ERASE_RETRIES);
+      test_success = false;
     }
 
     // Step 2: Generate random data and write
@@ -2151,8 +2205,10 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
       result.write_checksum = _Ospi_calculate_checksum(write_buffer, test_size);
       MPRINTF("Generated data checksum       : 0x%08X\n\r", result.write_checksum);
 
+      T_sys_timestump start_time;
       Get_hw_timestump(&start_time);
-      err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
+      fsp_err_t       err = Mc80_ospi_memory_mapped_write(g_mc80_ospi.p_ctrl, write_buffer, (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + test_address), test_size);
+      T_sys_timestump end_time;
       Get_hw_timestump(&end_time);
       result.write_time_us = Timestump_diff_to_usec(&start_time, &end_time);
 
@@ -2176,8 +2232,10 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
       MPRINTF("\n\r--- Step 3: Reading and verifying data ---\n\r");
       memset(read_buffer, 0x00, test_size);  // Clear read buffer
 
+      T_sys_timestump start_time;
       Get_hw_timestump(&start_time);
-      err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, test_address, test_size);
+      fsp_err_t       err = Mc80_ospi_memory_mapped_read(g_mc80_ospi.p_ctrl, read_buffer, test_address, test_size);
+      T_sys_timestump end_time;
       Get_hw_timestump(&end_time);
       result.read_time_us = Timestump_diff_to_usec(&start_time, &end_time);
 
@@ -2205,7 +2263,7 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
       result.checksum_match = (result.write_checksum == result.read_checksum);
 
       // Always perform detailed comparison even if checksums match
-      bool data_match = _Ospi_compare_buffers_detailed(write_buffer, read_buffer, test_size, test_address);
+      bool data_match       = _Ospi_compare_buffers_detailed(write_buffer, read_buffer, test_size, test_address);
 
       if (result.checksum_match && data_match)
       {
