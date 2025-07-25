@@ -920,30 +920,25 @@ fsp_err_t Mc80_ospi_memory_mapped_read(T_mc80_ospi_instance_ctrl *const p_ctrl, 
 
   Universal Write Operation Features:
   - Accepts any destination address (automatic 64-byte alignment handling)
-  - Accepts any data size (no page boundary or alignment restrictions)
-  - Automatically creates temporary 64-byte buffer for unaligned addresses or page boundary protection
+  - Accepts any data size (no alignment restrictions)
+  - Automatically creates temporary 64-byte buffer for unaligned addresses
   - Fills non-target bytes with 0xFF (erased flash state) in alignment buffer
-  - All data is written in optimized blocks (up to 64 bytes) for maximum hardware performance
-  - Automatically prevents crossing 256-byte page boundaries during write operations
+  - All data is written in optimized 64-byte blocks for maximum hardware performance
   - Each block is written using a separate DMA transfer with write enable sequence
 
-  Automatic Page Boundary Protection Algorithm:
-  1. Current Address Tracking:
-     - Track current destination address throughout the transfer
-     - Calculate page position and alignment for each block independently
-     - Ensure each write operation respects both alignment and page boundaries
+  64-byte Alignment Algorithm:
+  1. For unaligned addresses or partial blocks:
+     - Use temporary buffer aligned to 64-byte boundary
+     - Fill buffer with 0xFF (erased state) and copy user data to correct offset
+     - Write full 64-byte aligned block to flash
+  2. For aligned full blocks:
+     - Write directly from source buffer to flash without temporary buffer
+  3. Continue until all data is written with proper address progression
 
-  2. Adaptive Block Sizing:
-     - Use full 64-byte blocks when possible and safe
-     - Use smaller blocks (1-63 bytes) when approaching page boundaries
-     - Always ensure write operations stay within single 256-byte page
-     - Continue until all data is written with proper address progression
-
-  Example: Write 100 bytes starting at address 0x800000E0 (224 bytes into page)
-  - Page boundary at 0x80000100 (32 bytes remaining in page)
-  - Block 1: [0xFF×32, data[0-31]] → write 32 bytes at 0x800000E0 (stays in page)
-  - Block 2: [data[32-95]] → write 64 bytes at 0x80000100 (new page, full block)
-  - Block 3: [data[96-99], 0xFF×60] → write 64 bytes at 0x80000140 (final partial block)
+  Example: Write 100 bytes starting at address 0x800000E0 (32 bytes into 64-byte block)
+  - Block 1: temp_buffer[0-31]=0xFF, temp_buffer[32-63]=data[0-31] → write 64 bytes at 0x800000C0
+  - Block 2: data[32-95] → write 64 bytes directly at 0x80000100
+  - Block 3: temp_buffer[0-3]=data[96-99], temp_buffer[4-63]=0xFF → write 64 bytes at 0x80000140
 
   Protocol and Operation Method:
   - Uses memory-mapped write mode where flash appears as regular system memory
@@ -1029,7 +1024,7 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
   // Process data with 64-byte alignment for optimal performance
   bytes_remaining            = byte_count;
 
-  // Handle data transfer with automatic 64-byte alignment and page boundary protection
+  // Handle data transfer with automatic 64-byte alignment
   uint32_t current_dest_addr = dest_addr;  // Track current destination address
 
   while (bytes_remaining > 0)
@@ -1037,36 +1032,18 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     uint8_t const *write_src;
     uint8_t       *write_dest;
 
-    // Calculate position within current 256-byte page using current destination address
-    uint32_t page_offset              = current_dest_addr & (MC80_OSPI_PRV_PAGE_SIZE_BYTES - 1);
-    uint32_t bytes_to_page_end        = MC80_OSPI_PRV_PAGE_SIZE_BYTES - page_offset;
-
     // Calculate 64-byte alignment for current address
     uint32_t current_alignment_offset = current_dest_addr & (MC80_OSPI_BLOCK_WRITE_SIZE - 1);
     uint32_t current_aligned_addr     = current_dest_addr & ~(MC80_OSPI_BLOCK_WRITE_SIZE - 1);
 
-    // Determine maximum safe block size (limited by page boundary and alignment)
-    uint32_t max_safe_block_size      = MC80_OSPI_BLOCK_WRITE_SIZE;
-    if (max_safe_block_size > bytes_to_page_end)
+    // Check if we need to handle alignment or partial block
+    if (current_alignment_offset != 0 || bytes_remaining < MC80_OSPI_BLOCK_WRITE_SIZE)
     {
-      max_safe_block_size = bytes_to_page_end;
-    }
-
-    // Check if we need to handle alignment or use safe block size
-    if (current_alignment_offset != 0 || bytes_remaining < max_safe_block_size || max_safe_block_size < MC80_OSPI_BLOCK_WRITE_SIZE)
-    {
-      // Use temporary buffer for alignment, partial block, or page boundary protection
+      // Use temporary buffer for alignment or partial block
       uint32_t bytes_to_copy;
 
       // Calculate how much data we can copy in this block
-      uint32_t available_space_in_block = max_safe_block_size - current_alignment_offset;
-
-      // Check for edge case where no space is available
-      if (available_space_in_block == 0)
-      {
-        err = FSP_ERR_ASSERTION;  // No space available in current block
-        break;
-      }
+      uint32_t available_space_in_block = MC80_OSPI_BLOCK_WRITE_SIZE - current_alignment_offset;
 
       // Determine actual bytes to copy (limited by remaining data and available space)
       bytes_to_copy = bytes_remaining;
@@ -1075,8 +1052,8 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
         bytes_to_copy = available_space_in_block;
       }
 
-      // Set block size - use max safe block size for proper alignment
-      current_block_size = max_safe_block_size;
+      // Set block size to full 64-byte block for proper alignment
+      current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
 
       // Validate buffer boundaries to prevent overflow
       if (current_block_size > MC80_OSPI_BLOCK_WRITE_SIZE)
@@ -1107,10 +1084,10 @@ fsp_err_t Mc80_ospi_memory_mapped_write(T_mc80_ospi_instance_ctrl *p_ctrl, uint8
     }
     else
     {
-      // Direct transfer for aligned blocks that don't cross page boundaries
+      // Direct transfer for aligned blocks
       write_src          = p_src + src_offset;
       write_dest         = (uint8_t *)current_dest_addr;
-      current_block_size = max_safe_block_size;
+      current_block_size = MC80_OSPI_BLOCK_WRITE_SIZE;
 
       // Update for next iteration
       src_offset += current_block_size;
