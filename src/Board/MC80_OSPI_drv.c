@@ -1597,9 +1597,9 @@ fsp_err_t Mc80_ospi_spi_protocol_switch_safe(T_mc80_ospi_instance_ctrl *p_ctrl, 
   // Step 4: Configure flash device for target protocol
   if (new_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
   {
-    // Configure flash to OPI DTR mode by setting CR2 = 0x02
+    // Configure Dummy Cycle and Frequency Table BEFORE switching to OPI DTR mode
 
-    // Enable writing
+    // Enable writing for CR2 frequency table configuration
     T_mc80_ospi_direct_transfer write_enable_cmd = {
       .command        = MX25_CMD_WREN,
       .command_length = 1,
@@ -1608,6 +1608,24 @@ fsp_err_t Mc80_ospi_spi_protocol_switch_safe(T_mc80_ospi_instance_ctrl *p_ctrl, 
       .dummy_cycles   = 0,
     };
 
+    _Mc80_ospi_direct_transfer(p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Write CR2 Dummy Cycle and Frequency Table (address 0x300, value 0x07 for 66MHz table suitable for 60MHz)
+    T_mc80_ospi_direct_transfer write_cr2_freq_cmd = {
+      .command        = MX25_CMD_WRCR2,
+      .command_length = 1,
+      .address        = 0x00000300,  // CR2 Dummy Cycle and Frequency Table address
+      .address_length = 4,           // 4-byte address required for CR2
+      .data           = 0x07,        // Dummy Cycle setting for 66MHz (suitable for 60MHz operation)
+      .data_length    = 1,
+      .dummy_cycles   = 0,
+    };
+
+    _Mc80_ospi_direct_transfer(p_ctrl, &write_cr2_freq_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
+
+    // Now configure flash to OPI DTR mode by setting CR2 = 0x02
+
+    // Enable writing for OPI mode configuration
     _Mc80_ospi_direct_transfer(p_ctrl, &write_enable_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
     // Write CR2 to enable OPI DTR mode
@@ -1624,7 +1642,7 @@ fsp_err_t Mc80_ospi_spi_protocol_switch_safe(T_mc80_ospi_instance_ctrl *p_ctrl, 
     _Mc80_ospi_direct_transfer(p_ctrl, &write_cr2_cmd, MC80_OSPI_DIRECT_TRANSFER_DIR_WRITE);
 
     // Wait for flash configuration to complete
-    R_BSP_SoftwareDelay(10, BSP_DELAY_UNITS_MILLISECONDS);
+    R_BSP_SoftwareDelay(1, BSP_DELAY_UNITS_MILLISECONDS);
   }
 
   // Step 5: Switch controller to target protocol
