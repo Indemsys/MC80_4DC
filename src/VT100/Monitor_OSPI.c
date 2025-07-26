@@ -566,11 +566,18 @@ static fsp_err_t _Ospi_ensure_driver_open(void)
 }
 
 /*-----------------------------------------------------------------------------------------------------
-  Description: Full chip erase operation - erases entire 32MB flash memory
+  Description: Full chip erase operation - erases entire 32MB flash memory in 64KB blocks
 
-  This function performs complete flash memory erase using Mc80_ospi_erase function.
+  This function performs complete flash memory erase using 64KB block erase operations.
   WARNING: This operation will destroy ALL data on the flash chip and cannot be undone.
   The operation may take several minutes to complete due to the large size (32MB).
+
+  Features:
+  - Erases chip in 64KB blocks for optimal performance
+  - Real-time progress display with statistics
+  - Tracks minimum, maximum, and average erase times per block
+  - Calculates erase speed statistics in KB/s
+  - Static display updates (no scrolling)
 
   Parameters: keycode - Key code (unused)
 
@@ -582,13 +589,14 @@ void OSPI_chip_erase_full(uint8_t keycode)
 
   // Clear screen and display header
   MPRINTF(VT100_CLEAR_AND_HOME);
-  MPRINTF(" ===== OSPI Full Chip Erase =====\n\r");
+  MPRINTF(" ===== OSPI Full Chip Erase (64KB Blocks) =====\n\r");
   MPRINTF("\n\r");
 
   // Display warning message
   MPRINTF("WARNING: This operation will erase the ENTIRE flash chip (32MB)!\n\r");
   MPRINTF("ALL data will be permanently lost and cannot be recovered.\n\r");
   MPRINTF("This operation may take several minutes to complete.\n\r");
+  MPRINTF("Erase method: 64KB blocks for optimal performance\n\r");
   MPRINTF("\n\r");
 
   // Confirm operation
@@ -658,40 +666,158 @@ void OSPI_chip_erase_full(uint8_t keycode)
     return;
   }
 
-  MPRINTF("\n\r===== Starting Full Chip Erase =====\n\r");
+  // Calculate erase parameters
+  const uint32_t block_size = MX25UM25645G_BLOCK_SIZE;  // 64KB
+  const uint32_t total_blocks = MX25UM25645G_TOTAL_SIZE / block_size;  // 512 blocks
+
+  // Statistics variables
+  uint32_t min_erase_time_us = UINT32_MAX;
+  uint32_t max_erase_time_us = 0;
+  uint64_t total_erase_time_us = 0;
+  uint32_t min_speed_kbps = UINT32_MAX;
+  uint32_t max_speed_kbps = 0;
+  uint32_t blocks_erased = 0;
+
+  MPRINTF("\n\r===== Starting 64KB Block Erase =====\n\r");
   MPRINTF("Flash size: %d MB (%d bytes)\n\r", MX25UM25645G_TOTAL_SIZE / (1024 * 1024), MX25UM25645G_TOTAL_SIZE);
-  MPRINTF("Please wait, this operation may take several minutes...\n\r");
+  MPRINTF("Block size: %d KB (%d bytes)\n\r", block_size / 1024, block_size);
+  MPRINTF("Total blocks: %d\n\r", total_blocks);
   MPRINTF("\n\r");
 
-  // Record start time
-  uint32_t start_time = tx_time_get();
+  // Setup static display area (save cursor position)
+  MPRINTF("Progress: [                    ] 0%% (0/%d blocks)\n\r", total_blocks);
+  MPRINTF("Current block: 0x00000000 - 0x0000FFFF\n\r");
+  MPRINTF("Block erase time: --- ms\n\r");
+  MPRINTF("Block erase speed: --- KB/s\n\r");
+  MPRINTF("\n\r");
+  MPRINTF("=== Statistics ===\n\r");
+  MPRINTF("Min erase time: --- ms\n\r");
+  MPRINTF("Max erase time: --- ms\n\r");
+  MPRINTF("Avg erase time: --- ms\n\r");
+  MPRINTF("Min erase speed: --- KB/s\n\r");
+  MPRINTF("Max erase speed: --- KB/s\n\r");
 
-  // Perform full chip erase
-  err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl, (uint8_t *)MC80_OSPI_DEVICE_0_START_ADDRESS, MX25UM25645G_TOTAL_SIZE);
+  // Record total start time
+  uint32_t total_start_time = tx_time_get();
 
-  // Calculate elapsed time
-  uint32_t end_time = tx_time_get();
-  uint32_t elapsed_ticks = end_time - start_time;
-  uint32_t elapsed_ms = TICKS_TO_MS(elapsed_ticks);
-  uint32_t elapsed_seconds = elapsed_ms / 1000;
-  uint32_t elapsed_minutes = elapsed_seconds / 60;
-
-  MPRINTF("\n\r===== Full Chip Erase Results =====\n\r");
-
-  if (err == FSP_SUCCESS)
+  // Erase each 64KB block
+  for (uint32_t block_num = 0; block_num < total_blocks; block_num++)
   {
-    MPRINTF("Full chip erase operation     : SUCCESS\n\r");
-    MPRINTF("Erased size                   : %d MB (%d bytes)\n\r",
-            MX25UM25645G_TOTAL_SIZE / (1024 * 1024), MX25UM25645G_TOTAL_SIZE);
-    MPRINTF("Elapsed time                  : %d minutes %d seconds (%d ms)\n\r",
-            elapsed_minutes, elapsed_seconds % 60, elapsed_ms);
+    uint32_t block_address = block_num * block_size;
 
-    // Calculate effective erase speed
-    if (elapsed_ms > 0)
+    // Record block start time
+    uint32_t block_start_time = tx_time_get();
+
+    // Perform block erase
+    err = Mc80_ospi_erase(g_mc80_ospi.p_ctrl,
+                         (uint8_t *)(MC80_OSPI_DEVICE_0_START_ADDRESS + block_address),
+                         block_size);
+
+    // Calculate block erase time
+    uint32_t block_end_time = tx_time_get();
+    uint32_t block_erase_ticks = block_end_time - block_start_time;
+    uint32_t block_erase_ms = TICKS_TO_MS(block_erase_ticks);
+    uint32_t block_erase_us = block_erase_ms * 1000;
+
+    if (err != FSP_SUCCESS)
     {
-      uint32_t speed_kbps = (MX25UM25645G_TOTAL_SIZE / 1024) * 1000 / elapsed_ms;
-      MPRINTF("Effective erase speed         : %d KB/s\n\r", speed_kbps);
+      MPRINTF("\n\r\n\rERROR: Failed to erase block %d at address 0x%08X (error: 0x%X)\n\r",
+              block_num, block_address, err);
+      MPRINTF("Press any key to return to menu...");
+      uint8_t dummy_key;
+      WAIT_CHAR(&dummy_key, ms_to_ticks(10000));
+      return;
     }
+
+    blocks_erased++;
+
+    // Calculate block erase speed (KB/s)
+    uint32_t block_speed_kbps = 0;
+    if (block_erase_us > 0)
+    {
+      block_speed_kbps = ((block_size / 1024) * 1000000) / block_erase_us;
+    }
+
+    // Update statistics
+    if (block_erase_us < min_erase_time_us)
+      min_erase_time_us = block_erase_us;
+    if (block_erase_us > max_erase_time_us)
+      max_erase_time_us = block_erase_us;
+    total_erase_time_us += block_erase_us;
+
+    if (block_speed_kbps < min_speed_kbps)
+      min_speed_kbps = block_speed_kbps;
+    if (block_speed_kbps > max_speed_kbps)
+      max_speed_kbps = block_speed_kbps;
+
+    // Calculate progress
+    uint32_t progress_percent = ((block_num + 1) * 100) / total_blocks;
+    uint32_t progress_chars = ((block_num + 1) * 20) / total_blocks;
+
+    // Calculate average erase time
+    uint32_t avg_erase_time_us = (uint32_t)(total_erase_time_us / blocks_erased);
+
+    // Update static display (move cursor back and overwrite)
+    MPRINTF("\033[11A");  // Move cursor up 11 lines to overwrite display
+
+    // Progress bar
+    MPRINTF("Progress: [");
+    for (uint32_t j = 0; j < 20; j++)
+    {
+      if (j < progress_chars)
+        MPRINTF("=");
+      else
+        MPRINTF(" ");
+    }
+    MPRINTF("] %d%% (%d/%d blocks)\n\r", progress_percent, block_num + 1, total_blocks);
+
+    // Current block info
+    uint32_t block_end_addr = block_address + block_size - 1;
+    MPRINTF("Current block: 0x%08X - 0x%08X\n\r", block_address, block_end_addr);
+    MPRINTF("Block erase time: %d ms\n\r", block_erase_ms);
+    MPRINTF("Block erase speed: %d KB/s\n\r", block_speed_kbps);
+    MPRINTF("\n\r");
+
+    // Statistics
+    MPRINTF("=== Statistics ===\n\r");
+    MPRINTF("Min erase time: %d ms\n\r", min_erase_time_us / 1000);
+    MPRINTF("Max erase time: %d ms\n\r", max_erase_time_us / 1000);
+    MPRINTF("Avg erase time: %d ms\n\r", avg_erase_time_us / 1000);
+    MPRINTF("Min erase speed: %d KB/s\n\r", min_speed_kbps);
+    MPRINTF("Max erase speed: %d KB/s\n\r", max_speed_kbps);
+  }
+
+  // Calculate total elapsed time
+  uint32_t total_end_time = tx_time_get();
+  uint32_t total_elapsed_ticks = total_end_time - total_start_time;
+  uint32_t total_elapsed_ms = TICKS_TO_MS(total_elapsed_ticks);
+  uint32_t total_elapsed_seconds = total_elapsed_ms / 1000;
+  uint32_t total_elapsed_minutes = total_elapsed_seconds / 60;
+
+  MPRINTF("\n\r\n\r===== Block Erase Results =====\n\r");
+
+  if (blocks_erased == total_blocks)
+  {
+    MPRINTF("Block erase operation         : SUCCESS\n\r");
+    MPRINTF("Total blocks erased           : %d / %d\n\r", blocks_erased, total_blocks);
+    MPRINTF("Total size erased             : %d MB (%d bytes)\n\r",
+            MX25UM25645G_TOTAL_SIZE / (1024 * 1024), MX25UM25645G_TOTAL_SIZE);
+    MPRINTF("Total elapsed time            : %d minutes %d seconds (%d ms)\n\r",
+            total_elapsed_minutes, total_elapsed_seconds % 60, total_elapsed_ms);
+
+    // Calculate overall erase speed
+    if (total_elapsed_ms > 0)
+    {
+      uint32_t overall_speed_kbps = (MX25UM25645G_TOTAL_SIZE / 1024) * 1000 / total_elapsed_ms;
+      MPRINTF("Overall erase speed           : %d KB/s\n\r", overall_speed_kbps);
+    }
+
+    MPRINTF("\n\r=== Final Statistics ===\n\r");
+    MPRINTF("Minimum block erase time      : %d ms\n\r", min_erase_time_us / 1000);
+    MPRINTF("Maximum block erase time      : %d ms\n\r", max_erase_time_us / 1000);
+    MPRINTF("Average block erase time      : %d ms\n\r", (uint32_t)(total_erase_time_us / blocks_erased) / 1000);
+    MPRINTF("Minimum block erase speed     : %d KB/s\n\r", min_speed_kbps);
+    MPRINTF("Maximum block erase speed     : %d KB/s\n\r", max_speed_kbps);
 
     // Verification phase - check that entire chip is erased
     MPRINTF("\n\r===== Erase Verification =====\n\r");
@@ -811,10 +937,11 @@ void OSPI_chip_erase_full(uint8_t keycode)
   }
   else
   {
-    MPRINTF("Full chip erase operation     : FAILED (error: 0x%X)\n\r", err);
-    MPRINTF("Elapsed time                  : %d minutes %d seconds (%d ms)\n\r",
-            elapsed_minutes, elapsed_seconds % 60, elapsed_ms);
-    MPRINTF("\n\rThe erase operation failed. Flash memory state is unknown.\n\r");
+    MPRINTF("Block erase operation         : INCOMPLETE\n\r");
+    MPRINTF("Blocks erased                 : %d / %d\n\r", blocks_erased, total_blocks);
+    MPRINTF("Total elapsed time            : %d minutes %d seconds (%d ms)\n\r",
+            total_elapsed_minutes, total_elapsed_seconds % 60, total_elapsed_ms);
+    MPRINTF("\n\rThe erase operation was incomplete. Flash memory state is unknown.\n\r");
     MPRINTF("You may need to retry the operation or check hardware connections.\n\r");
   }
 
@@ -891,6 +1018,11 @@ void OSPI_test_custom_operations(uint8_t keycode)
           uint32_t new_address = _Ospi_get_address_input();
           if (new_address <= OSPI_MAX_FLASH_ADDRESS)
           {
+            // Auto-align address to even boundary for 8D-8D-8D protocol
+            if (settings.protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+            {
+              new_address &= 0xFFFFFFFE;  // Clear LSB to make address even
+            }
             settings.address = new_address;
             MPRINTF("Address updated successfully\n\r");
           }
@@ -931,6 +1063,11 @@ void OSPI_test_custom_operations(uint8_t keycode)
           uint32_t new_size = _Ospi_get_size_input(OSPI_MAX_CUSTOM_SIZE);
           if (new_size > 0 && (settings.address + new_size - 1) <= OSPI_MAX_FLASH_ADDRESS)
           {
+            // Auto-align size to even boundary for 8D-8D-8D protocol
+            if (settings.protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+            {
+              new_size = (new_size + 1) & 0xFFFFFFFE;  // Round up to even size
+            }
             settings.size = new_size;
             MPRINTF("Size updated successfully\n\r");
           }
@@ -1343,6 +1480,13 @@ void OSPI_test_custom_operations(uint8_t keycode)
         {
           MPRINTF("Protocol switch               : SUCCESS\n\r");
           settings.protocol = new_protocol;
+
+          // Auto-align existing address and size when switching to 8D-8D-8D protocol
+          if (new_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+          {
+            settings.address &= 0xFFFFFFFE;  // Clear LSB to make address even
+            settings.size = (settings.size + 1) & 0xFFFFFFFE;  // Round up to even size
+          }
         }
         else
         {
