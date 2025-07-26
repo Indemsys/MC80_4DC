@@ -2443,6 +2443,21 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
         break;
     }
 
+    // Auto-align address and size for 8D-8D-8D protocol
+    bool address_aligned = false;
+    bool size_aligned = false;
+    if (test_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D)
+    {
+      uint32_t orig_address = test_address;
+      uint32_t orig_size = test_size;
+      test_address &= 0xFFFFFFFE;  // Clear LSB to make address even
+      test_size = (test_size + 1) & 0xFFFFFFFE;  // Round up to even size
+
+      // Store alignment info for display
+      address_aligned = (orig_address != test_address);
+      size_aligned = (orig_size != test_size);
+    }
+
     // Initialize test result structure
     T_ospi_comprehensive_test_result result = { 0 };
     result.test_number                      = test_number;
@@ -2473,8 +2488,27 @@ void OSPI_test_comprehensive_memory(uint8_t keycode)
     }
 
     MPRINTF("Alignment type                : %s\n\r", alignment_str);
+    MPRINTF("Protocol                      : %s\n\r", (test_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D) ? "Octal DDR (8D-8D-8D)" : "Standard SPI (1S-1S-1S)");
     MPRINTF("Generated address             : 0x%08X\n\r", test_address);
     MPRINTF("Generated size                : %u bytes\n\r", test_size);
+
+    // Show auto-alignment info for 8D-8D-8D protocol
+    if (test_protocol == MC80_OSPI_PROTOCOL_8D_8D_8D && (address_aligned || size_aligned))
+    {
+      MPRINTF("Note: Auto-aligned for 8D-8D-8D protocol ");
+      if (address_aligned && size_aligned)
+      {
+        MPRINTF("(address & size)\n\r");
+      }
+      else if (address_aligned)
+      {
+        MPRINTF("(address only)\n\r");
+      }
+      else
+      {
+        MPRINTF("(size only)\n\r");
+      }
+    }
     MPRINTF("\n\rPress ENTER to continue, ESC to exit: ");
 
     // Wait for user confirmation
