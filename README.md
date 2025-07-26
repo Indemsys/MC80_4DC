@@ -140,8 +140,12 @@ High-performance OSPI flash driver featuring:
 
 This project is licensed under the MIT License - see the [`LICENSE`](LICENSE ) file for details.
 
----
+## 🔌 Board Connections
 
 **MC80_4DC** - Experimental DC motor control with precision analog feedback.
+![MC80 Connections](Doc/Img/MC80_Connections.png)
+
+---
+
 
 ⚠️ **Disclaimer**: This is an experimental project. Use at your own risk in production environments.
