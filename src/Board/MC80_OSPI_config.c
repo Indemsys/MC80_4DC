@@ -170,7 +170,7 @@ const T_mc80_ospi_extended_cfg g_OSPI_extended_cfg = {
   .p_autocalibration_preamble_patterns     = (uint32_t *)g_OSPI_preamble_patterns,  // Preamble patterns for calibration
   .p_timing_settings                       = &g_OSPI_timing_settings,               // Timing settings
   .p_xspi_command_set                      = &g_OSPI_command_set,                   // Command set table
-  .data_latch_delay_clocks                 = MC80_OSPI_DS_TIMING_DELAY_15,          // Data latch delay
+  .data_latch_delay_clocks                 = MC80_OSPI_DS_TIMING_DELAY_31,          // Data latch delay
   .p_lower_lvl_transfer                    = &g_transfer_OSPI,                      // DMA transfer instance
 };
 

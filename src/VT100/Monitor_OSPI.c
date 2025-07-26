@@ -166,9 +166,9 @@ static uint32_t              _Ospi_calculate_checksum(uint8_t *data, uint32_t si
 
 const T_VT100_Menu_item MENU_OSPI_ITEMS[] = {
   { '1', OSPI_test_info, 0 },
-  { '2', OSPI_chip_erase_full, 0 },
-  { '3', OSPI_test_comprehensive_memory, 0 },
-  { '4', OSPI_test_custom_operations, 0 },
+  { '2', OSPI_test_comprehensive_memory, 0 },
+  { '3', OSPI_test_custom_operations, 0 },
+  { '4', OSPI_chip_erase_full, 0 },
   { 'R', 0, 0 },
   { 0 }
 };
@@ -177,9 +177,9 @@ const T_VT100_Menu MENU_OSPI = {
   "OSPI Flash Testing",
   "\033[5C OSPI Flash memory testing menu\r\n"
   "\033[5C <1> - Flash information & status\r\n"
-  "\033[5C <2> - Full chip erase (32MB)\r\n"
-  "\033[5C <3> - Comprehensive memory test (reproducible random sequences)\r\n"
-  "\033[5C <4> - Custom operations (read/write/erase)\r\n"
+  "\033[5C <2> - Comprehensive memory test (reproducible random sequences)\r\n"
+  "\033[5C <3> - Custom operations (read/write/erase)\r\n"
+  "\033[5C <4> - Full chip erase (32MB)\r\n"
   "\033[5C <R> - Return to previous menu\r\n",
   MENU_OSPI_ITEMS,
 };
